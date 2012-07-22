@@ -299,7 +299,7 @@ def add(amount, agent, subtype, counter_party=None, event=None, bank_id="Cash", 
     item.save()
 
     for fee_amount, fee_cpty in fees:
-        add(-fee_amount, agent, subtype="Fees", counter_party=fee_cpty, event=event,
+        add(-fee_amount, agent, subtype="Fees:"+fee_cpty, counter_party=fee_cpty, event=event,
             bank_id=bank_id, bank_account=bank_account,
             external=True, date=date, test=test, income=False,
             fee_for=item.name, **other_fields)
@@ -312,18 +312,17 @@ def list_transactions():
         print format_entry(item)
 
 
-def _mk_balance_group(depth, group,effective):
-    date = "effective_date" if effective else "date"
-    if group == "month":
-        column = date
-        l = lambda result: decode(result[date]).month
+def _mk_balance_group(depth, group):
+    if group in  ("month","effective_month"):
+        column = "effective_date" if group == "effective_month" else "date"
+        l = lambda result: decode(result[column]).replace(day=1,hour=0,minute=0,second=0,microsecond=0,tzinfo=None)
     else:
         column = group
-        l = (lambda result: ":".join(result[group].split(":")[0:depth])) if depth else (lambda result: result[group])
+        l = (lambda result: ":".join(result[column].split(":")[0:depth])) if depth else (lambda result: result[column])
     return column, l
 
 
-def balances(group_by='bank_account',depth=0,effective=False):
+def balances(group_by='bank_account',depth=0, where = ""):
     ret = OrderedDict()
     if not isinstance(group_by,(tuple,list)):
         group_by= [group_by,]
@@ -331,16 +330,40 @@ def balances(group_by='bank_account',depth=0,effective=False):
     columns = []
     lambdas = []
     for group in group_by:
-        column, l = _mk_balance_group(depth, group, effective)
+        column, l = _mk_balance_group(depth, group)
         columns.append(column)
         lambdas.append(l)
 
-    query = "select * from {domain} where {wheres}  order by {group_by}".format(domain=domain.name,wheres = " and ".join(x+" is not null" for x in columns),group_by=columns[0])
+    if where:
+        where += " and " + " and ".join(x+" is not null" for x in columns)
+    else:
+        where = " and ".join(x+" is not null" for x in columns)
+#    for filter, value in filter_by.iteritems():
+#        if isinstance(value,(tuple,list)):
+#            where += "and {field} in ({values})".format(field= filter, values = ",".join('{value}'.format(value = x) for x in value))
+#        else:
+#            where += "and {field} in ({values})".format(field= filter, values = ",".join('{value}'.format(value = x) for x in value))
+
+
+    query = "select * from {domain} where {wheres}  order by {group_by}".format(domain=domain.name,wheres = where,group_by=columns[0])
     rs = domain.select(query)
     keyfunc = lambda result: tuple(l(result) for l in lambdas)
     for group_name, transactions in groupby(sorted(rs,key=keyfunc), keyfunc):
-        ret[group_name] = sum(decode(transaction['amount']) for transaction in transactions)
+        total = sum(decode(transaction['amount']) for transaction in transactions)
+        if total:
+            ret[group_name] = total
     return ret
+
+def all_balances(group_by='bank_account', *args,**kwargs):
+    ret = {}
+    ret.update(balances(group_by, 0, *args,**kwargs))
+    if not ret:  #empty selection
+        return {}
+    maxDepth = max(max(sub_key.count(":") for sub_key in bal_key if hasattr(sub_key,"count")) for bal_key in ret.iterkeys())
+    while maxDepth>0:
+        ret.update(balances(group_by,maxDepth))
+        maxDepth-=1
+    return OrderedDict(sorted(ret.iteritems()))
 
 
 def tax():
@@ -483,14 +506,16 @@ def format_entry(entry, verbose=False):
     return ret + "\n" + pformat(entry)
 
 
-def encode(to_encode):
+def encode(to_encode,epsilon=False):
     if hasattr(to_encode, "isoformat"):        
         if isinstance(to_encode,datetime):
             # if this is really a date
             if to_encode.hour == 0 and to_encode.minute == 0 and to_encode.second ==0:
                 to_encode = to_encode.date()
-            else:
+            elif not epsilon:
                 return to_encode.replace(microsecond=0).isoformat()
+            else:
+                return to_encode.isoformat()
         return to_encode.isoformat()
     elif isinstance(to_encode, bool):
         return unicode(to_encode)
@@ -536,17 +561,17 @@ def connect_config_ledger(config):
 
 
 def select(before, state=None):
+    dateTest = lambda entry: decode(entry["effective_date"]) < before or decode(entry["entered"]) < before or decode(entry["date"]) < before
     if state is None:
-        return [entry for entry in domain if decode(entry["date"]) < before]
-    return [entry for entry in domain if decode(entry["date"]) < before and entry['state'] == state]
+        return [entry for entry in domain if dateTest(entry)]
+    return [entry for entry in domain if dateTest(entry) and entry['state'] == state]
 
 
 #def post(before, state="Ready To Post"):
 #    postingTime = post_transactions(select(before, state))
 #    return postingTime
-def add_class(amount_paid,student,agent,bank_account,bank_id,class_name,class_date,tax_inclusive=0,date_paid=None,test=False,
+def add_class(amount_paid,student,agent,bank_account,bank_id,class_name,class_date,materials=0,date_paid=None,test=False,
               fees=(), **other_fields):
-    subtype="Class"
 
     class_name += class_date.strftime(":%B %d, %Y")
     if not is_member(student,class_date):
@@ -555,8 +580,11 @@ def add_class(amount_paid,student,agent,bank_account,bank_id,class_name,class_da
         amount_paid -= dues_paid
         dues(members=student,collector=agent,bank_account=bank_account,bank_id=bank_id, amount=dues_paid,
             effective_date=class_date,date=date_paid,plan="Class Only",test=test,event=class_name,**other_fields)
-    add(amount_paid, agent, subtype, counter_party=student, event=class_name, bank_id=bank_id, bank_account=bank_account,
-        date=date_paid, effective_date=class_date, test=test, tax_inclusive=tax_inclusive, fees=fees, **other_fields)
+
+    add(amount_paid-materials, agent, "Class:Instruction", counter_party=student, event=class_name, bank_id=bank_id, bank_account=bank_account,
+        date=date_paid, effective_date=class_date, test=test, fees=fees, **other_fields)
+    add(materials, agent, "Class:Supplies", counter_party=student, event=class_name, bank_id=bank_id, bank_account=bank_account,
+        date=date_paid, effective_date=class_date, test=test, tax_inclusive=materials, **other_fields)
 
 def list_fields(transactions = None):
     if transactions is None:
