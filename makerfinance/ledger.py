@@ -354,15 +354,17 @@ def balances(group_by='bank_account',depth=0, where = ""):
             ret[group_name] = total
     return ret
 
-def all_balances(group_by='bank_account', *args,**kwargs):
+
+def all_balances(group_by='bank_account', *args, **kwargs):
     ret = {}
-    ret.update(balances(group_by, 0, *args,**kwargs))
+    ret.update(balances(group_by, 0, *args, **kwargs))
     if not ret:  #empty selection
         return {}
-    maxDepth = max(max(sub_key.count(":") for sub_key in bal_key if hasattr(sub_key,"count")) for bal_key in ret.iterkeys())
-    while maxDepth>0:
-        ret.update(balances(group_by,maxDepth))
-        maxDepth-=1
+    maxDepth = max(
+        max(sub_key.count(":") for sub_key in bal_key if hasattr(sub_key, "count")) for bal_key in ret.iterkeys())
+    while maxDepth > 0:
+        ret.update(balances(group_by, maxDepth, *args, **kwargs))
+        maxDepth -= 1
     return OrderedDict(sorted(ret.iteritems()))
 
 
