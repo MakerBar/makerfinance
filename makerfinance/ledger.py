@@ -62,11 +62,17 @@ def adjust_total(total, subtotal, adjustment):
     return total*(float(subtotal-adjustment)/subtotal)
 
 def delete_test_data():
+    """
+    Delete all data with the test flag set
+    """
     for item in domain:
         if item['test']:
             domain.delete_item(item)
 
 def member_list(date=None):
+    """
+    Print a list of current members
+    """
     if date is None:
         date = datetime.now()
     query = u"select counter_party, plan, effective_until from {domain} where plan > '' and subtype='Dues' and effective_until>'{date}' and effective_date<'{date}' ".format(
@@ -77,7 +83,10 @@ def member_list(date=None):
     for member_num, member in enumerate(rs):
         print member_num+1, member['counter_party'], member['plan'], member['effective_until']
 
-def member_report(date=None):
+def member_report():
+    """
+    Report of all members current and past
+    """
     ret = []
     query = u"select counter_party, counter_party_id, plan, effective_date, effective_until from {domain} where subtype='Dues' and counter_party_id > ''".format(
         domain=domain.name)
