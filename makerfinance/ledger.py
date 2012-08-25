@@ -579,6 +579,12 @@ def select(before, state=None):
 def add_class(amount_paid,student,agent,bank_account,bank_id,class_name,class_date,materials=0,date_paid=None,test=False,
               fees=(), **other_fields):
 
+    """
+    Adds a student's payment for a class, including all related transactions
+
+    if they are not a member adds a class-only membership
+    adds class fee and materials as
+    """
     class_name += class_date.strftime(":%B %d, %Y")
     if not is_member(student,class_date):
         dues_paid = membership_plans["Class Only"].rate
@@ -589,8 +595,9 @@ def add_class(amount_paid,student,agent,bank_account,bank_id,class_name,class_da
 
     add(amount_paid-materials, agent, "Class:Instruction", counter_party=student, event=class_name, bank_id=bank_id, bank_account=bank_account,
         date=date_paid, effective_date=class_date, test=test, fees=fees, **other_fields)
-    add(materials, agent, "Class:Supplies", counter_party=student, event=class_name, bank_id=bank_id, bank_account=bank_account,
-        date=date_paid, effective_date=class_date, test=test, tax_inclusive=materials, **other_fields)
+    if materials:
+        add(materials, agent, "Class:Supplies", counter_party=student, event=class_name, bank_id=bank_id, bank_account=bank_account,
+            date=date_paid, effective_date=class_date, test=test, tax_inclusive=materials, **other_fields)
 
 def list_fields(transactions = None):
     if transactions is None:
