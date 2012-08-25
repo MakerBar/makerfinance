@@ -42,17 +42,25 @@ membership_plans = {
     "Null": MembershipPlan(0.0, 0),
     }
 
-#class Account(object):
-#    def __init__(self, ledger, name):
-#        self.ledger = ledger
-#        self.name = name
-#
-#    def balance(self, date):
-#        query = "select * from {domain} where account == {name} and date<{date}".format(domain=domain.name,
-#            name=self.name, date=encode(date))
-#        rs = ledger.select(query)
-#        ret = sum(decode(transaction['amount']) for transaction in rs)
-#        return ret
+class Ledger(object):
+    def __init__(self, domain):
+        self.domain = domain
+    def __getattr__(self, item):
+        if item in globals():
+            return globals()[item]
+        raise AttributeError
+
+    def balance(self,where = ""):
+        if where:
+            query = "select * from {domain} where {wheres}".format(domain=self.domain.name,wheres = where)
+        else:
+            query = "select * from {domain}".format(domain=self.domain.name)
+
+        rs = self.domain.select(query)
+        return sum(decode(transaction['amount']) for transaction in rs)
+
+#    def balances(self,group_by='bank_account',depth=0, where = ""):
+#        return balances(group_by, depth, where)
 
 def adjust_total(total, subtotal, adjustment):
     """
@@ -327,11 +335,11 @@ def _mk_balance_group(depth, group):
         l = lambda result: decode(result[column]).replace(day=1,hour=0,minute=0,second=0,microsecond=0,tzinfo=None)
     else:
         column = group
-        l = (lambda result: ":".join(result[column].split(":")[0:depth])) if depth else (lambda result: result[column])
+        l = (lambda result: ":".join(result[column].split(":")[0:depth])) if depth >= 0 else (lambda result: result[column])
     return column, l
 
 
-def balances(group_by='bank_account',depth=0, where = ""):
+def balances(group_by='bank_account',depth=-1, where = ""):
     ret = OrderedDict()
     if not isinstance(group_by,(tuple,list)):
         group_by= [group_by,]
@@ -362,19 +370,6 @@ def balances(group_by='bank_account',depth=0, where = ""):
         if total:
             ret[group_name] = total
     return ret
-
-
-def all_balances(group_by='bank_account', *args, **kwargs):
-    ret = {}
-    ret.update(balances(group_by, 0, *args, **kwargs))
-    if not ret:  #empty selection
-        return {}
-    maxDepth = max(
-        max(sub_key.count(":") for sub_key in bal_key if hasattr(sub_key, "count")) for bal_key in ret.iterkeys())
-    while maxDepth > 0:
-        ret.update(balances(group_by, maxDepth, *args, **kwargs))
-        maxDepth -= 1
-    return OrderedDict(sorted(ret.iteritems()))
 
 
 def tax():
@@ -568,7 +563,7 @@ def connect_config_ledger(config):
     print aws_access_key_id, aws_secret_access_key, domain_name, test
     sdb = boto.connect_sdb(aws_access_key_id, aws_secret_access_key, debug=0)
     domain = sdb.create_domain(domain_name)
-    return domain
+    return Ledger(domain)
 
 
 def select(before, state=None):
