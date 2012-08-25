@@ -6,14 +6,14 @@ from csv import DictWriter
 import hashlib
 from itertools import groupby
 from datetime import datetime, timedelta
-from decimal import Decimal, InvalidOperation
+from decimal import Decimal
 import pickle
-from pprint import pformat
-import uuid
 from collections import OrderedDict
 
 import dateutil.parser
 import boto
+from makerfinance.reports import make_posting_reports
+from makerfinance.util import encode, decode, mk_id
 
 __author__ = 'andriod'
 
@@ -22,7 +22,6 @@ MONTH = 30.4375
 SEMESTER = "Semester"
 INCOME = "Income"
 EXPENSE = "Expense"
-INK_CARD = "Ink Card"
 FOUNDERS_LOAN = "Founder's Loan"
 PRIMARY_CHECKING = "Primary Checking"
 CASH_BOX = "Cash Box"
@@ -62,13 +61,6 @@ class Ledger(object):
 #    def balances(self,group_by='bank_account',depth=0, where = ""):
 #        return balances(group_by, depth, where)
 
-def adjust_total(total, subtotal, adjustment):
-    """
-    Adjust the total on a partially reimbursed receipt by subtracting non-reimbursed expenses and proportionately
-    adjusting tax and shipping
-    """
-    return total*(float(subtotal-adjustment)/subtotal)
-
 def delete_test_data():
     """
     Delete all data with the test flag set
@@ -77,23 +69,9 @@ def delete_test_data():
         if item['test']:
             domain.delete_item(item)
 
-def member_list(date=None):
+def member_list():
     """
-    Print a list of current members
-    """
-    if date is None:
-        date = datetime.now()
-    query = u"select counter_party, plan, effective_until from {domain} where plan > '' and subtype='Dues' and effective_until>'{date}' and effective_date<'{date}' ".format(
-        domain=domain.name, date=encode(date))
-    query += "order by plan"
-
-    rs = domain.select(query)
-    for member_num, member in enumerate(rs):
-        print member_num+1, member['counter_party'], member['plan'], member['effective_until']
-
-def member_report():
-    """
-    Report of all members current and past
+    List of all members current and past by member id, name, plan, and effective dates
     """
     ret = []
     query = u"select counter_party, counter_party_id, plan, effective_date, effective_until from {domain} where subtype='Dues' and counter_party_id > ''".format(
@@ -239,8 +217,7 @@ def dump_entity_cache():
     return "\n".join("%s - %s"%(name, id) for name, id in sorted(entity_cache.iteritems()) )
 
 
-def mk_id():
-    return uuid.uuid4().hex
+
 
 
 def add(amount, agent, subtype, counter_party=None, event=None, bank_id="Cash", bank_account=None,
@@ -322,11 +299,6 @@ def add(amount, agent, subtype, counter_party=None, event=None, bank_id="Cash", 
             fee_for=item.name, **other_fields)
 
     return item.name
-
-
-def list_transactions():
-    for item in domain:
-        print format_entry(item)
 
 
 def _mk_balance_group(depth, group):
@@ -432,8 +404,6 @@ def post_transactions(transactions):
             continue
         toPost.append(entry)
 
-    agentKey = lambda item: item["agent"]
-    toPost.sort(key=agentKey)
 
     for entry in toPost:
         entry['checksum'] = calculate_checksum(entry)
@@ -441,108 +411,12 @@ def post_transactions(transactions):
         entry['posted'] = postingTime
         entry['state'] = "Posted"
 
-    postingReports = {}
-    for agent, agentToPost in groupby(toPost, agentKey):
-        postingReports[agent] = make_posting_report(agentToPost)
-    postingReports['Board'] = make_posting_report(toPost)
-
-    postingSummary = "transaction id, date, checksum, checksum version\n"
-    for entry in toPost:
-        postingSummary += "{id},{date},{checksum},{version}\n".format(id=entry.name, date=entry["effective_date"],
-            checksum=entry["checksum"], version=entry["checksum_version"])
-
-    open("Posting_Summary_" + postingTime + ".txt", "wt").write(postingSummary)
-    for agent, (textReport, binaryReport) in postingReports.iteritems():
-        open("Posting_Report_" + postingTime + "_" + agent + ".txt", "wt").write(textReport)
-        open("Posting_Report_" + postingTime + "_" + agent + ".pkl", "wb").write(binaryReport)
+    make_posting_reports(postingTime, toPost)
 
     for entry in toPost:
         entry.save(replace=True)
 
     return postingTime
-
-
-def make_posting_report(entries):
-    entries = list(entries)
-    lines = []
-    for entry in entries:
-        lines.append(format_entry(entry))
-
-    binary = pickle.dumps([(entry.name, dict(entry)) for entry in entries])
-    return "\n".join(lines), binary
-
-
-def format_entry(entry, verbose=False):
-    ret = unicode(entry.name)
-    entry = dict(entry)
-
-    posted = entry.pop('posted')
-    ret += "\t" + entry.pop('state')
-    if posted:
-        ret += "\t" + str(decode(posted).date()) + "\t" + entry.pop('checksum', "MISSING CHECKSUM")
-
-
-    ret += "\n"
-    flags = ("E" if decode(entry['external']) else ("T" if entry.pop("transfer_id", False) else "I"))
-    account = entry.pop("bank_account") + "\t" + entry.pop("budget_account")
-    ret += u"\t{date}\t{amount}\t{flags}\t{account}\t{type}:{subtype}\t{cpty}\t{agent}".format(amount=entry.pop("amount")
-        ,
-        account=account, cpty=entry.pop("counter_party", "Internal" if not decode(entry.pop("external")) else "ERROR"),
-        agent=entry.pop("agent"),
-        flags=flags, type=entry.pop("type"), subtype=entry.pop("subtype"),
-        date=decode(entry.pop("effective_date")).date())
-    if 'notes' in entry:
-        ret += "\n\t" + entry.pop('notes')
-    if not verbose:
-        entry.pop("test")
-        entry.pop("tax_inclusive")
-        entry.pop('entered')
-        entry.pop('modified')
-        entry.pop("bank_id")
-        entry.pop("checksum_version", "")
-        entry.pop("date")
-        entry.pop("effective_until", "")
-        entry.pop("plan", "")
-        entry.pop("event", "")
-        entry.pop("fee_for",'')
-        entry.pop("agent_id","")
-        entry.pop("counter_party_id","")
-    if not entry:
-        return ret
-    return ret + "\n" + pformat(entry)
-
-
-def encode(to_encode,epsilon=False):
-    if hasattr(to_encode, "isoformat"):        
-        if isinstance(to_encode,datetime):
-            # if this is really a date
-            if to_encode.hour == 0 and to_encode.minute == 0 and to_encode.second ==0:
-                to_encode = to_encode.date()
-            elif not epsilon:
-                return to_encode.replace(microsecond=0).isoformat()
-            else:
-                return to_encode.isoformat()
-        return to_encode.isoformat()
-    elif isinstance(to_encode, bool):
-        return unicode(to_encode)
-    try:
-        return "%.2f" % to_encode
-    except TypeError:
-        return unicode(to_encode)
-
-
-def decode(string):
-    if string == "False":
-        return False
-    if not len(string):
-        return string
-    try:
-        return Decimal(string)
-    except InvalidOperation:
-        try:
-            return dateutil.parser.parse(string)
-        except ValueError:
-            return string
 
 
 def check_pickle(filename):
@@ -579,12 +453,6 @@ def select(before, state=None):
 def add_class(amount_paid,student,agent,bank_account,bank_id,class_name,class_date,materials=0,date_paid=None,test=False,
               fees=(), **other_fields):
 
-    """
-    Adds a student's payment for a class, including all related transactions
-
-    if they are not a member adds a class-only membership
-    adds class fee and materials as
-    """
     class_name += class_date.strftime(":%B %d, %Y")
     if not is_member(student,class_date):
         dues_paid = membership_plans["Class Only"].rate
@@ -595,9 +463,8 @@ def add_class(amount_paid,student,agent,bank_account,bank_id,class_name,class_da
 
     add(amount_paid-materials, agent, "Class:Instruction", counter_party=student, event=class_name, bank_id=bank_id, bank_account=bank_account,
         date=date_paid, effective_date=class_date, test=test, fees=fees, **other_fields)
-    if materials:
-        add(materials, agent, "Class:Supplies", counter_party=student, event=class_name, bank_id=bank_id, bank_account=bank_account,
-            date=date_paid, effective_date=class_date, test=test, tax_inclusive=materials, **other_fields)
+    add(materials, agent, "Class:Supplies", counter_party=student, event=class_name, bank_id=bank_id, bank_account=bank_account,
+        date=date_paid, effective_date=class_date, test=test, tax_inclusive=materials, **other_fields)
 
 def list_fields(transactions = None):
     if transactions is None:

@@ -1,11 +1,97 @@
 from StringIO import StringIO
 from collections import OrderedDict
 from csv import DictWriter
+import csv
 from datetime import date, timedelta, time, datetime
+from itertools import groupby
+import pickle
+from pprint import pformat
 from zipfile import ZipFile
-from makerfinance.ledger import encode
+from makerfinance.util import encode, decode
 
 __author__ = 'andriod'
+
+
+def make_posting_reports(postingTime, toPost):
+    """
+    Used by the ledger to prepare mandatory reports when posting.
+    """
+    agentKey = lambda item: item["agent"]
+    toPost.sort(key=agentKey)
+    postingReports = {}
+    for agent, agentToPost in groupby(toPost, agentKey):
+        postingReports[agent] = make_posting_report(agentToPost)
+    postingReports['Board'] = make_posting_report(toPost)
+    postingSummary = "transaction id, date, checksum, checksum version\n"
+    for entry in toPost:
+        postingSummary += "{id},{date},{checksum},{version}\n".format(id=entry.name, date=entry["effective_date"],
+            checksum=entry["checksum"], version=entry["checksum_version"])
+    open("Posting_Summary_" + postingTime + ".txt", "wt").write(postingSummary)
+    for agent, (textReport, binaryReport) in postingReports.iteritems():
+        open("Posting_Report_" + postingTime + "_" + agent + ".txt", "wt").write(textReport)
+        open("Posting_Report_" + postingTime + "_" + agent + ".pkl", "wb").write(binaryReport)
+
+def make_posting_report(entries):
+    """
+    Prepare text and binary format versions of the posted records
+    """
+    entries = list(entries)
+    lines = []
+    for entry in entries:
+        lines.append(format_entry(entry))
+
+    binary = pickle.dumps([(entry.name, dict(entry)) for entry in entries])
+    return "\n".join(lines), binary
+
+
+def format_entry(entry, verbose=False):
+    """
+    Format entry in a standard, readable way.
+    * if not verbose, pop fields that are generally unnecessary
+    * unknown fields are pretty printed as a best effort fallback
+    """
+    ret = unicode(entry.name)
+    entry = dict(entry)
+
+    posted = entry.pop('posted')
+    ret += "\t" + entry.pop('state')
+    if posted:
+        ret += "\t" + str(decode(posted).date()) + "\t" + entry.pop('checksum', "MISSING CHECKSUM")
+
+
+    ret += "\n"
+    flags = ("E" if decode(entry['external']) else ("T" if entry.pop("transfer_id", False) else "I"))
+    account = entry.pop("bank_account") + "\t" + entry.pop("budget_account")
+    ret += u"\t{date}\t{amount}\t{flags}\t{account}\t{type}:{subtype}\t{cpty}\t{agent}".format(amount=entry.pop("amount")
+        ,
+        account=account, cpty=entry.pop("counter_party", "Internal" if not decode(entry.pop("external")) else "ERROR"),
+        agent=entry.pop("agent"),
+        flags=flags, type=entry.pop("type"), subtype=entry.pop("subtype"),
+        date=decode(entry.pop("effective_date")).date())
+    if 'notes' in entry:
+        ret += "\n\t" + entry.pop('notes')
+    if not verbose:
+        entry.pop("test")
+        entry.pop("tax_inclusive")
+        entry.pop('entered')
+        entry.pop('modified')
+        entry.pop("bank_id")
+        entry.pop("checksum_version", "")
+        entry.pop("date")
+        entry.pop("effective_until", "")
+        entry.pop("plan", "")
+        entry.pop("event", "")
+        entry.pop("fee_for",'')
+        entry.pop("agent_id","")
+        entry.pop("counter_party_id","")
+    if not entry:
+        return ret
+    return ret + "\n" + pformat(entry)
+
+
+def list_transactions(ledger):
+    for item in ledger.domain:
+        print format_entry(item)
 
 def all_balances(ledger,group_by='bank_account', *args, **kwargs):
     ret = {}
@@ -114,3 +200,16 @@ def make_quarterly_zipfile(ledger, reports_zip, quarter, year=None, account_grou
     print "Saving Quarterly Report to ", reports_zip
     for title, text in quarterly_reports(ledger, quarter, year, account_grouping=account_grouping).iteritems():
         quarterly.writestr(title.replace(" ", "_") + ".tsv", text)
+
+
+def member_report(ledger):
+    print "\nMembers"
+    writer = csv.writer(open("member_list.csv", "w"))
+    writer.writerow(("member_id", "name", "plan", "start", "end"))
+    print "Name\t\tPlan\tMember Until"
+    for member in ledger.member_list():
+        writer.writerow(member)
+        member_id, name, plan, start, end = member
+        if decode(end) < datetime.now():
+            plan = "Expired " + plan
+        print "{name}\t{plan}\t{end}".format(name=name, plan=plan, end=end)
