@@ -32,7 +32,7 @@ agent_account_types = [INCOME, EXPENSE, FOUNDERS_LOAN, INK_CARD]
 
 checksum_fields = ['amount', 'agent', 'agent_id', 'counter_party', 'counter_party_id', 'bank_account', 'external',
                    'effective_date', 'effective_until', 'plan', 'transfer_id', 'bank_id', 'test', 'type',
-                   'tax_inclusive', 'entered']
+                   'tax_inclusive', 'entered', 'subtype']
 
 membership_plans = {
     "Individual": MembershipPlan(100.0, MONTH),
