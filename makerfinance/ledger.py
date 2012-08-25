@@ -28,7 +28,7 @@ PRIMARY_CHECKING = "Primary Checking"
 CASH_BOX = "Cash Box"
 
 tax_rate = Decimal(0.070)
-agent_account_types = [INCOME, EXPENSE, FOUNDERS_LOAN, INK_CARD]
+agent_account_types = [INCOME, EXPENSE, FOUNDERS_LOAN]
 
 checksum_fields = ['amount', 'agent', 'agent_id', 'counter_party', 'counter_party_id', 'bank_account', 'external',
                    'effective_date', 'effective_until', 'plan', 'transfer_id', 'bank_id', 'test', 'type',
