@@ -90,7 +90,7 @@ def format_entry(entry, verbose=False):
 
 
 def list_transactions(ledger):
-    for item in ledger.domain:
+    for item in ledger:
         print format_entry(item)
 
 def all_balances(ledger,group_by='bank_account', *args, **kwargs):
