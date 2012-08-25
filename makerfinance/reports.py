@@ -31,6 +31,7 @@ def make_posting_reports(postingTime, toPost):
         open("Posting_Report_" + postingTime + "_" + agent + ".txt", "wt").write(textReport)
         open("Posting_Report_" + postingTime + "_" + agent + ".pkl", "wb").write(binaryReport)
 
+
 def make_posting_report(entries):
     """
     Prepare text and binary format versions of the posted records
@@ -58,11 +59,11 @@ def format_entry(entry, verbose=False):
     if posted:
         ret += "\t" + str(decode(posted).date()) + "\t" + entry.pop('checksum', "MISSING CHECKSUM")
 
-
     ret += "\n"
     flags = ("E" if decode(entry['external']) else ("T" if entry.pop("transfer_id", False) else "I"))
     account = entry.pop("bank_account") + "\t" + entry.pop("budget_account")
-    ret += u"\t{date}\t{amount}\t{flags}\t{account}\t{type}:{subtype}\t{cpty}\t{agent}".format(amount=entry.pop("amount")
+    ret += u"\t{date}\t{amount}\t{flags}\t{account}\t{type}:{subtype}\t{cpty}\t{agent}".format(
+        amount=entry.pop("amount")
         ,
         account=account, cpty=entry.pop("counter_party", "Internal" if not decode(entry.pop("external")) else "ERROR"),
         agent=entry.pop("agent"),
@@ -81,9 +82,9 @@ def format_entry(entry, verbose=False):
         entry.pop("effective_until", "")
         entry.pop("plan", "")
         entry.pop("event", "")
-        entry.pop("fee_for",'')
-        entry.pop("agent_id","")
-        entry.pop("counter_party_id","")
+        entry.pop("fee_for", '')
+        entry.pop("agent_id", "")
+        entry.pop("counter_party_id", "")
     if not entry:
         return ret
     return ret + "\n" + pformat(entry)
@@ -93,7 +94,8 @@ def list_transactions(ledger):
     for item in ledger:
         print format_entry(item)
 
-def all_balances(ledger,group_by='bank_account', *args, **kwargs):
+
+def all_balances(ledger, group_by='bank_account', *args, **kwargs):
     ret = {}
     ret.update(ledger.balances(group_by, -1, *args, **kwargs))
     if not ret:  #empty selection
@@ -105,6 +107,7 @@ def all_balances(ledger,group_by='bank_account', *args, **kwargs):
         maxDepth -= 1
     return OrderedDict(sorted(ret.iteritems()))
 
+
 def format_account_balances(balances_by_account):
     quarterFlowReport = "Account\tBalance\n"
     for (budgetAccount,), amount in balances_by_account.iteritems():
@@ -115,13 +118,13 @@ def format_account_balances(balances_by_account):
 def initialize_writer(fieldnames, buffer, months):
     flowSummaryWriter = DictWriter(buffer, fieldnames=fieldnames, delimiter="\t")
     flowSummaryWriter.writerow(dict(
-        zip(fieldnames, ["Account"] + (["Start"] if "Start" in fieldnames else []) + \
-                        [month.strftime("%B %Y") for month in months] + ["Net"]+ \
+        zip(fieldnames, ["Account"] + (["Start"] if "Start" in fieldnames else []) +\
+                        [month.strftime("%B %Y") for month in months] + ["Net"] +\
                         (["End"] if "End" in fieldnames else []))))
     return flowSummaryWriter
 
 
-def cash_flow_report_set(ledger,start, end, account_grouping):
+def cash_flow_report_set(ledger, start, end, account_grouping):
     ret = {}
     months = set()
     end -= timedelta(microseconds=1)
@@ -131,13 +134,13 @@ def cash_flow_report_set(ledger,start, end, account_grouping):
         end=encode(end, epsilon=True))
     endWhere = "effective_date <= '{end}'".format(start=encode(start),
         end=encode(end, epsilon=True))
-    startingBalances = all_balances(ledger,group_by=account_grouping, where=startWhere)
+    startingBalances = all_balances(ledger, group_by=account_grouping, where=startWhere)
     startingBalanceReport = format_account_balances(startingBalances)
     activeBudgetAccounts = set(x[0] for x in startingBalances.keys())
-    endingBalances = all_balances(ledger,group_by=account_grouping, where=endWhere)
+    endingBalances = all_balances(ledger, group_by=account_grouping, where=endWhere)
     endingBalanceReport = format_account_balances(endingBalances)
     monthlyFlowReport = "Month\tAccount\tAmount\n"
-    monthlyFlow = all_balances(ledger,group_by=('effective_month', account_grouping), where=inWhere)
+    monthlyFlow = all_balances(ledger, group_by=('effective_month', account_grouping), where=inWhere)
     for (month, budgetAccount), amount in monthlyFlow.iteritems():
         monthlyFlowReport += "{month}\t{budget_account}\t${amount}\n".format(month=month.strftime("%B %Y"),
             budget_account=budgetAccount, amount=amount)
@@ -148,7 +151,7 @@ def cash_flow_report_set(ledger,start, end, account_grouping):
     activeBudgetAccounts.remove('')
     activeBudgetAccounts.append('')
     months = sorted(months)
-    quarterFlow = all_balances(ledger,group_by=account_grouping, where=inWhere)
+    quarterFlow = all_balances(ledger, group_by=account_grouping, where=inWhere)
     quarterFlowReport = format_account_balances(quarterFlow)
 
     flowSummary = OrderedDict()
@@ -158,10 +161,10 @@ def cash_flow_report_set(ledger,start, end, account_grouping):
     netFlowBuffer = StringIO()
 
     flowSummaryWriter = initialize_writer(["Account", "Start"] + months + ["Net", "End"], flowSummaryBuffer, months)
-    netFlowWriter = initialize_writer(["Account",] + months + ["Net"], netFlowBuffer, months)
+    netFlowWriter = initialize_writer(["Account", ] + months + ["Net"], netFlowBuffer, months)
     for budgetAccount in activeBudgetAccounts:
-        row = {"Account": "\t "*budgetAccount.count(":")+budgetAccount if budgetAccount else "Total",
-                            "Net": quarterFlow.get((budgetAccount,), "")}
+        row = {"Account": "\t " * budgetAccount.count(":") + budgetAccount if budgetAccount else "Total",
+               "Net": quarterFlow.get((budgetAccount,), "")}
         for month in months:
             row[month] = monthlyFlow.get((month, budgetAccount), "")
         if row['Net']:
@@ -170,7 +173,7 @@ def cash_flow_report_set(ledger,start, end, account_grouping):
         row.update({
             "Start": startingBalances.get((budgetAccount,), 0),
             "End": endingBalances.get((budgetAccount,), 0)
-            })
+        })
         flowSummary[budgetAccount] = row
     flowSummaryWriter.writerows(flowSummary.itervalues())
     netFlowWriter.writerows(netFlow.itervalues())
@@ -184,8 +187,7 @@ def cash_flow_report_set(ledger,start, end, account_grouping):
 
 
 def quarterly_reports(ledger, quarter, year=None,
-                      account_grouping = 'budget_account'):
-
+                      account_grouping='budget_account'):
     baseDate = date.today()
     if year is not None:
         baseDate = baseDate.replace(year=year)
@@ -193,9 +195,10 @@ def quarterly_reports(ledger, quarter, year=None,
     start = start.replace(month=(quarter - 1) * 3 + 1, day=1)
     end = datetime.combine(end.replace(month=quarter * 3 + 1, day=1), time(0))
 
-    return cash_flow_report_set(ledger,start, end, account_grouping)
+    return cash_flow_report_set(ledger, start, end, account_grouping)
 
-def make_quarterly_zipfile(ledger, reports_zip, quarter, year=None, account_grouping = 'budget_account'):
+
+def make_quarterly_zipfile(ledger, reports_zip, quarter, year=None, account_grouping='budget_account'):
     quarterly = ZipFile(reports_zip, "w")
     print "Saving Quarterly Report to ", reports_zip
     for title, text in quarterly_reports(ledger, quarter, year, account_grouping=account_grouping).iteritems():

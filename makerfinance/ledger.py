@@ -42,13 +42,16 @@ class Ledger(object):
     checksum_fields = ['amount', 'agent', 'agent_id', 'counter_party', 'counter_party_id', 'bank_account', 'external',
                        'effective_date', 'effective_until', 'plan', 'transfer_id', 'bank_id', 'test', 'type',
                        'tax_inclusive', 'entered', 'subtype']
+
     def __init__(self, domain):
         self.domain = domain
-        self.entity_cache={None:None}
+        self.entity_cache = {None: None}
+
     def __getattr__(self, item):
         if item in globals():
             return globals()[item]
         raise AttributeError
+
     def __iter__(self):
         for item in self.domain:
             yield item
@@ -60,9 +63,9 @@ class Ledger(object):
             entry = entry_or_id
         return entry
 
-    def balance(self,where = ""):
+    def balance(self, where=""):
         if where:
-            query = "select * from {domain} where {wheres}".format(domain=self.domain.name,wheres = where)
+            query = "select * from {domain} where {wheres}".format(domain=self.domain.name, wheres=where)
         else:
             query = "select * from {domain}".format(domain=self.domain.name)
 
@@ -77,7 +80,7 @@ class Ledger(object):
             if item['test']:
                 self.domain.delete_item(item)
 
-    def is_member(self, member,date, plan = None):
+    def is_member(self, member, date, plan=None):
         query = u"select effective_until, plan from {domain} where counter_party = '{member}' and subtype='Dues' and effective_until>='{date}' and effective_date<='{date} '".format(
             domain=self.domain.name, member=member, date=encode(date))
         if plan is not None:
@@ -99,8 +102,8 @@ class Ledger(object):
         query += "order by counter_party_id"
 
         rs = self.domain.select(query)
-        for member_id,dues in groupby(rs,lambda result: result['counter_party_id']):
-            dues = sorted(dues,key=lambda trans:trans['effective_date'])
+        for member_id, dues in groupby(rs, lambda result: result['counter_party_id']):
+            dues = sorted(dues, key=lambda trans: trans['effective_date'])
 
             last = None
             for pmt in dues:
@@ -108,12 +111,12 @@ class Ledger(object):
                     effective = pmt['effective_date']
                     last = pmt
                 elif last['effective_until'] != pmt['effective_date'] or pmt['plan'] != last['plan']:
-                    ret.append((member_id,last['counter_party'], last['plan'], effective, last['effective_until']))
+                    ret.append((member_id, last['counter_party'], last['plan'], effective, last['effective_until']))
                     last = None
                 else:
                     last = pmt
             if last is not None:
-                ret.append((member_id,last['counter_party'], last['plan'], effective, last['effective_until']))
+                ret.append((member_id, last['counter_party'], last['plan'], effective, last['effective_until']))
         return ret
 
     def tax(self):
@@ -122,20 +125,19 @@ class Ledger(object):
         ret = sum(decode(transaction['tax_inclusive']) for transaction in rs)
         return (ret * tax_rate) / (1 + tax_rate)
 
-
-    def list_fields(self,transactions = None):
+    def list_fields(self, transactions=None):
         if transactions is None:
             transactions = self.domain
-        return reduce(lambda x, y: x.union(y),[item.keys() for item in transactions], set())
+        return reduce(lambda x, y: x.union(y), [item.keys() for item in transactions], set())
 
-    def dump_to_csv(self,filename,transactions=None):
+    def dump_to_csv(self, filename, transactions=None):
         if transactions is None:
             transactions = list(self.domain)
         all_fields = sorted(self.list_fields(transactions))
-        writer = DictWriter(open(filename,"w"),fieldnames=all_fields)
-        writer.writerow(dict((x,x) for x in all_fields))
+        writer = DictWriter(open(filename, "w"), fieldnames=all_fields)
+        writer.writerow(dict((x, x) for x in all_fields))
         for item in transactions:
-            writer.writerow(dict(((name, value.encode("utf-8")) for name,value in  item.iteritems())))
+            writer.writerow(dict(((name, value.encode("utf-8")) for name, value in item.iteritems())))
 
     def check_pickle(self, filename):
         entries = pickle.load(open(filename, 'rb'))
@@ -147,7 +149,7 @@ class Ledger(object):
 
     def add(self, amount, agent, subtype, counter_party=None, event=None, bank_id="Cash", bank_account=None,
             external=True, date=None, effective_date=None, budget_account=None,
-            test="", income=None, notes="", tax_inclusive=0, fees=(), state = "New", **other_fields):
+            test="", income=None, notes="", tax_inclusive=0, fees=(), state="New", **other_fields):
         if counter_party is None and external:
             if event is None:
                 raise TypeError("Either event or counter_party must be specified for external transactions")
@@ -177,7 +179,7 @@ class Ledger(object):
 
         if budget_account is None:
             budget_account = [subtype]
-        elif isinstance(budget_account,str):
+        elif isinstance(budget_account, str):
             budget_account = [budget_account]
 
         if event:
@@ -218,7 +220,7 @@ class Ledger(object):
         item.save()
 
         for fee_amount, fee_cpty in fees:
-            self.add(-fee_amount, agent, subtype="Fees:"+fee_cpty, counter_party=fee_cpty, event=event,
+            self.add(-fee_amount, agent, subtype="Fees:" + fee_cpty, counter_party=fee_cpty, event=event,
                 bank_id=bank_id, bank_account=bank_account,
                 external=True, date=date, test=test, income=False,
                 fee_for=item.name, **other_fields)
@@ -252,8 +254,9 @@ class Ledger(object):
         self.add(amount, agent, date=date, external=False, transfer_id=transfer_id, subtype=subtype, **toDetails)
         self.add(-amount, agent, date=date, external=False, transfer_id=transfer_id, subtype=subtype, **fromDetails)
 
-    def bank_transfer(self,amount, from_account, to_account, agent, bank=True,subtype=None, date=None, **kwargs):
-        self.transfer(amount, {'bank_account':from_account}, {'bank_account':to_account}, agent, bank, subtype, date, **kwargs)
+    def bank_transfer(self, amount, from_account, to_account, agent, bank=True, subtype=None, date=None, **kwargs):
+        self.transfer(amount, {'bank_account': from_account}, {'bank_account': to_account}, agent, bank, subtype, date,
+            **kwargs)
 
     def dues(self, members, collector, amount=100.0, plan=None, bank_id="Cash", effective_date=None, date=None, test="",
              prorated=False, rounded=False, fees=(), **kwargs):
@@ -266,7 +269,7 @@ class Ledger(object):
             primary_member = members
         if effective_date is None:
             query = "select effective_until, plan from {domain} where counter_party = '{primary_member}' and subtype='Dues'".format(
-                domain=domain.name, primary_member=primary_member.replace("'","''"))
+                domain=domain.name, primary_member=primary_member.replace("'", "''"))
             if plan is not None:
                 query += "and plan='{plan}'".format(plan=plan)
             rs = domain.select(query)
@@ -288,7 +291,7 @@ class Ledger(object):
 
         effectiveRate = effectivePlan.rate + dependants * dependantPlan.rate
         if not(prorated or rounded):
-            assert dues_amount%effectiveRate == 0,"Inexact dues, you must specify prorated=True or rounded=True"
+            assert dues_amount % effectiveRate == 0, "Inexact dues, you must specify prorated=True or rounded=True"
 
         if effectivePlan.period == SEMESTER:
             if effective_date.month <= 5:
@@ -299,49 +302,58 @@ class Ledger(object):
                 effective_until = effective_date.replace(year=effective_date.year + 1, month=5, day=31)
         else:
             if rounded:
-                effective_until = effective_date + timedelta(days=effectivePlan.period * round(dues_amount / effectiveRate,0))
+                effective_until = effective_date + timedelta(
+                    days=effectivePlan.period * round(dues_amount / effectiveRate, 0))
             else:
                 effective_until = effective_date + timedelta(days=effectivePlan.period * dues_amount / effectiveRate)
         if len(other_members):
             raise NotImplementedError("Family membership needs to be revised/fixed")
         self.add(counter_party=primary_member, agent=collector, amount=amount, subtype="Dues", bank_id=bank_id,
-            effective_date=effective_date, effective_until=effective_until, plan=plan, test=test,date=date,
-            budget_account="Dues:"+plan,fees=fees,**kwargs)
-    #    for dependant in other_members:
+            effective_date=effective_date, effective_until=effective_until, plan=plan, test=test, date=date,
+            budget_account="Dues:" + plan, fees=fees, **kwargs)
+
+        #    for dependant in other_members:
+
     #        add(counter_party=dependant, agent=collector, amount=dues_amount, subtype="Dues", bank_id=bank_id,
     #            effective_date=effective_date, effective_until=effective_until, plan="Dependant",
     #            primary_member=primary_member, test=test, **kwargs)
 
-    def add_class(self, amount_paid,student,agent,bank_account,bank_id,class_name,class_date,materials=0,date_paid=None,test=False,
+    def add_class(self, amount_paid, student, agent, bank_account, bank_id, class_name, class_date, materials=0,
+                  date_paid=None, test=False,
                   fees=(), **other_fields):
-
         class_name += class_date.strftime(":%B %d, %Y")
-        if not self.is_member(student,class_date):
+        if not self.is_member(student, class_date):
             dues_paid = membership_plans["Class Only"].rate
-            assert amount_paid > dues_paid,"Paid only {paid} insufficient to cover dues of {dues}".format(paid=amount_paid, dues=dues_paid)
+            assert amount_paid > dues_paid, "Paid only {paid} insufficient to cover dues of {dues}".format(
+                paid=amount_paid, dues=dues_paid)
             amount_paid -= dues_paid
-            self.dues(members=student,collector=agent,bank_account=bank_account,bank_id=bank_id, amount=dues_paid,
-                effective_date=class_date,date=date_paid,plan="Class Only",test=test,event=class_name,**other_fields)
+            self.dues(members=student, collector=agent, bank_account=bank_account, bank_id=bank_id, amount=dues_paid,
+                effective_date=class_date, date=date_paid, plan="Class Only", test=test, event=class_name,
+                **other_fields)
 
-        self.add(amount_paid-materials, agent, "Class:Instruction", counter_party=student, event=class_name, bank_id=bank_id, bank_account=bank_account,
+        self.add(amount_paid - materials, agent, "Class:Instruction", counter_party=student, event=class_name,
+            bank_id=bank_id, bank_account=bank_account,
             date=date_paid, effective_date=class_date, test=test, fees=fees, **other_fields)
-        self.add(materials, agent, "Class:Supplies", counter_party=student, event=class_name, bank_id=bank_id, bank_account=bank_account,
+        self.add(materials, agent, "Class:Supplies", counter_party=student, event=class_name, bank_id=bank_id,
+            bank_account=bank_account,
             date=date_paid, effective_date=class_date, test=test, tax_inclusive=materials, **other_fields)
 
     @staticmethod
     def _mk_balance_group(depth, group):
-        if group in  ("month","effective_month"):
+        if group in ("month", "effective_month"):
             column = "effective_date" if group == "effective_month" else "date"
-            l = lambda result: decode(result[column]).replace(day=1,hour=0,minute=0,second=0,microsecond=0,tzinfo=None)
+            l = lambda result: decode(result[column]).replace(day=1, hour=0, minute=0, second=0, microsecond=0,
+                tzinfo=None)
         else:
             column = group
-            l = (lambda result: ":".join(result[column].split(":")[0:depth])) if depth >= 0 else (lambda result: result[column])
+            l = (lambda result: ":".join(result[column].split(":")[0:depth])) if depth >= 0 else (
+                lambda result: result[column])
         return column, l
 
-    def balances(self, group_by='bank_account',depth=-1, where = ""):
+    def balances(self, group_by='bank_account', depth=-1, where=""):
         ret = OrderedDict()
-        if not isinstance(group_by,(tuple,list)):
-            group_by= [group_by,]
+        if not isinstance(group_by, (tuple, list)):
+            group_by = [group_by, ]
 
         columns = []
         lambdas = []
@@ -351,20 +363,21 @@ class Ledger(object):
             lambdas.append(l)
 
         if where:
-            where += " and " + " and ".join(x+" is not null" for x in columns)
+            where += " and " + " and ".join(x + " is not null" for x in columns)
         else:
-            where = " and ".join(x+" is not null" for x in columns)
-        #    for filter, value in filter_by.iteritems():
+            where = " and ".join(x + " is not null" for x in columns)
+            #    for filter, value in filter_by.iteritems():
         #        if isinstance(value,(tuple,list)):
         #            where += "and {field} in ({values})".format(field= filter, values = ",".join('{value}'.format(value = x) for x in value))
         #        else:
         #            where += "and {field} in ({values})".format(field= filter, values = ",".join('{value}'.format(value = x) for x in value))
 
 
-        query = "select * from {domain} where {wheres}  order by {group_by}".format(domain=self.domain.name,wheres = where,group_by=columns[0])
+        query = "select * from {domain} where {wheres}  order by {group_by}".format(domain=self.domain.name,
+            wheres=where, group_by=columns[0])
         rs = self.domain.select(query)
         keyfunc = lambda result: tuple(l(result) for l in lambdas)
-        for group_name, transactions in groupby(sorted(rs,key=keyfunc), keyfunc):
+        for group_name, transactions in groupby(sorted(rs, key=keyfunc), keyfunc):
             total = sum(decode(transaction['amount']) for transaction in transactions)
             if total:
                 ret[group_name] = total
@@ -390,14 +403,14 @@ class Ledger(object):
             entry = self._get_entry(entry_or_id, True)
             if entry['state'] != from_state:
                 continue
-            self.set_state(entry,to_state)
+            self.set_state(entry, to_state)
             updated.append(entry)
         return updated
 
-
     def calculate_checksum(self, entry):
         try:
-            return hashlib.sha256(",".join(encode(entry[item]) for item in self.checksum_fields if item in entry)).hexdigest()
+            return hashlib.sha256(
+                ",".join(encode(entry[item]) for item in self.checksum_fields if item in entry)).hexdigest()
         except:
             print "Failed to checksum", entry
             raise
@@ -415,7 +428,6 @@ class Ledger(object):
                 continue
             toPost.append(entry)
 
-
         for entry in toPost:
             entry['checksum'] = self.calculate_checksum(entry)
             entry['checksum_version'] = 1
@@ -430,38 +442,43 @@ class Ledger(object):
         return postingTime
 
     def select(self, before, state=None):
-        dateTest = lambda entry: decode(entry["effective_date"]) < before or decode(entry["entered"]) < before or decode(entry["date"]) < before
+        dateTest = lambda entry: decode(entry["effective_date"]) < before or decode(
+            entry["entered"]) < before or decode(entry["date"]) < before
         if state is None:
             return [entry for entry in self if dateTest(entry)]
         return [entry for entry in self if dateTest(entry) and entry['state'] == state]
 
     def dump_entity_cache(self):
-        return "\n".join("%s - %s"%(name, id) for name, id in sorted(self.entity_cache.iteritems()) )
+        return "\n".join("%s - %s" % (name, id) for name, id in sorted(self.entity_cache.iteritems()))
 
     def get_entity_id(self, entity_name):
         if entity_name not in self.entity_cache:
             query = u"select counter_party, counter_party_id, agent, agent_id from {domain} where counter_party = '{name}' or agent = '{name}'"
-            query = query.format(name = entity_name.replace("'","''"),domain=domain.name)
+            query = query.format(name=entity_name.replace("'", "''"), domain=domain.name)
             rs = list(domain.select(query))
             if not rs:
-                self.entity_cache[entity_name]=mk_id()
+                self.entity_cache[entity_name] = mk_id()
             else:
-                assert len(rs) == 1, "Duplicate ids for entity {name}, resolve before adding new transactions for {name}:\n{details}".format(name=entity_name,details=rs)
+                assert len(
+                    rs) == 1, "Duplicate ids for entity {name}, resolve before adding new transactions for {name}:\n{details}".format(
+                    name=entity_name, details=rs)
                 if rs[0]['counter_party'] == entity_name:
-                    self.entity_cache[entity_name] =  rs[0]['counter_party_id']
+                    self.entity_cache[entity_name] = rs[0]['counter_party_id']
                 elif rs[0]['agent'] == entity_name:
                     self.entity_cache[entity_name] = rs[0]['agent_id']
                 else:
-                    raise AssertionError("Unexpected mismatch in entity name {name} not found in  search results:{details}".format(name=entity_name,details=rs))
+                    raise AssertionError(
+                        "Unexpected mismatch in entity name {name} not found in  search results:{details}".format(
+                            name=entity_name, details=rs))
         return self.entity_cache[entity_name]
 
 
 def connect_config_ledger(config):
     global domain, test
-    aws_access_key_id = config.get('auth','aws_access_key_id')
-    aws_secret_access_key = config.get('auth','aws_secret_access_key')
-    domain_name = config.get('auth','domain_name')
-    test = config.getboolean('auth','test') if config.has_option('auth','test') else False
+    aws_access_key_id = config.get('auth', 'aws_access_key_id')
+    aws_secret_access_key = config.get('auth', 'aws_secret_access_key')
+    domain_name = config.get('auth', 'domain_name')
+    test = config.getboolean('auth', 'test') if config.has_option('auth', 'test') else False
     print aws_access_key_id, aws_secret_access_key, domain_name, test
     sdb = boto.connect_sdb(aws_access_key_id, aws_secret_access_key, debug=0)
     domain = sdb.create_domain(domain_name)

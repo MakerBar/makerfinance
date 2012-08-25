@@ -11,14 +11,14 @@ def adjust_total(total, subtotal, adjustment):
     Adjust the total on a partially reimbursed receipt by subtracting non-reimbursed expenses and proportionately
     adjusting tax and shipping
     """
-    return total*(float(subtotal-adjustment)/subtotal)
+    return total * (float(subtotal - adjustment) / subtotal)
 
 
-def encode(to_encode,epsilon=False):
+def encode(to_encode, epsilon=False):
     if hasattr(to_encode, "isoformat"):
-        if isinstance(to_encode,datetime):
+        if isinstance(to_encode, datetime):
             # if this is really a date
-            if to_encode.hour == 0 and to_encode.minute == 0 and to_encode.second ==0:
+            if to_encode.hour == 0 and to_encode.minute == 0 and to_encode.second == 0:
                 to_encode = to_encode.date()
             elif not epsilon:
                 return to_encode.replace(microsecond=0).isoformat()
