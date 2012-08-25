@@ -19,6 +19,7 @@ __author__ = 'andriod'
 
 MembershipPlan = namedtuple("MembershipPlan", "rate period")
 MONTH = 30.4375
+
 SEMESTER = "Semester"
 INCOME = "Income"
 EXPENSE = "Expense"
@@ -26,16 +27,6 @@ FOUNDERS_LOAN = "Founder's Loan"
 PRIMARY_CHECKING = "Primary Checking"
 CASH_BOX = "Cash Box"
 
-tax_rate = Decimal(0.070)
-agent_account_types = [INCOME, EXPENSE, FOUNDERS_LOAN]
-
-membership_plans = {
-    "Individual": MembershipPlan(100.0, MONTH),
-    "Dependant": MembershipPlan(50.0, MONTH),
-    "Class Only": MembershipPlan(25.0, MONTH),
-    "Student": MembershipPlan(100.0, SEMESTER),
-    "Null": MembershipPlan(0.0, 0),
-    }
 
 class Ledger(object):
     # Eventually configurable
@@ -43,14 +34,19 @@ class Ledger(object):
                        'effective_date', 'effective_until', 'plan', 'transfer_id', 'bank_id', 'test', 'type',
                        'tax_inclusive', 'entered', 'subtype']
 
+    tax_rate = Decimal(0.070)
+    agent_account_types = [INCOME, EXPENSE, FOUNDERS_LOAN]
+
+    membership_plans = {
+        "Individual": MembershipPlan(100.0, MONTH),
+        "Dependant": MembershipPlan(50.0, MONTH),
+        "Class Only": MembershipPlan(25.0, MONTH),
+        "Student": MembershipPlan(100.0, SEMESTER),
+        "Null": MembershipPlan(0.0, 0),
+        }
     def __init__(self, domain):
         self.domain = domain
         self.entity_cache = {None: None}
-
-    def __getattr__(self, item):
-        if item in globals():
-            return globals()[item]
-        raise AttributeError
 
     def __iter__(self):
         for item in self.domain:
@@ -123,7 +119,7 @@ class Ledger(object):
         query = "select tax_inclusive from {domain} where tax_inclusive is not null".format(domain=self.domain.name)
         rs = self.domain.select(query)
         ret = sum(decode(transaction['tax_inclusive']) for transaction in rs)
-        return (ret * tax_rate) / (1 + tax_rate)
+        return (ret * self.tax_rate) / (1 + self.tax_rate)
 
     def list_fields(self, transactions=None):
         if transactions is None:
@@ -172,7 +168,7 @@ class Ledger(object):
                     bank_account = PRIMARY_CHECKING
             else:
                 bank_account = EXPENSE
-        if bank_account in agent_account_types:
+        if bank_account in self.agent_account_types:
             bank_account = ":".join((agent, bank_account))
 
         subtype = subtype.title()
@@ -286,8 +282,8 @@ class Ledger(object):
             date = effective_date.date()
         dependants = len(other_members)
 
-        dependantPlan = membership_plans["Dependant" if dependants else "Null"]
-        effectivePlan = membership_plans[plan]
+        dependantPlan = self.membership_plans["Dependant" if dependants else "Null"]
+        effectivePlan = self.membership_plans[plan]
 
         effectiveRate = effectivePlan.rate + dependants * dependantPlan.rate
         if not(prorated or rounded):
@@ -323,7 +319,7 @@ class Ledger(object):
                   fees=(), **other_fields):
         class_name += class_date.strftime(":%B %d, %Y")
         if not self.is_member(student, class_date):
-            dues_paid = membership_plans["Class Only"].rate
+            dues_paid = self.membership_plans["Class Only"].rate
             assert amount_paid > dues_paid, "Paid only {paid} insufficient to cover dues of {dues}".format(
                 paid=amount_paid, dues=dues_paid)
             amount_paid -= dues_paid
