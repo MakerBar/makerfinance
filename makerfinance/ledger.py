@@ -182,6 +182,8 @@ class Ledger(object):
             budget_account.append(event)
         budget_account = ":".join(budget_account)
 
+        if tax_inclusive is True:
+            tax_inclusive = amount
         # for now
         other_fields['tax_inclusive'] = tax_inclusive
 
