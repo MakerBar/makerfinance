@@ -29,6 +29,12 @@ CASH_BOX = "Cash Box"
 
 
 class Ledger(object):
+    """
+    Hold the records of a ledger or journal
+
+    The ledger may be the organization's general ledger or a sales
+    journal or other special ledger.
+    """
     # Eventually configurable
     checksum_fields = ['amount', 'agent', 'agent_id', 'counter_party', 'counter_party_id', 'bank_account', 'external',
                        'effective_date', 'effective_until', 'plan', 'transfer_id', 'bank_id', 'test', 'type',
