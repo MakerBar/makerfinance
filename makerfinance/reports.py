@@ -1,8 +1,9 @@
 from StringIO import StringIO
-from collections import OrderedDict
+from collections import OrderedDict, defaultdict
 from csv import DictWriter
 import csv
 from datetime import date, timedelta, time, datetime
+from decimal import Decimal
 from itertools import groupby
 import pickle
 from pprint import pformat
@@ -206,13 +207,30 @@ def make_quarterly_zipfile(ledger, reports_zip, quarter, year=None, account_grou
 
 
 def member_report(ledger):
-    print "\nMembers"
+    ret =  "\nMembers\n"
     writer = csv.writer(open("member_list.csv", "w"))
     writer.writerow(("member_id", "name", "plan", "start", "end"))
-    print "Name\t\tPlan\tMember Until"
+    ret += "Name\t\tPlan\tMember Until\n"
     for member in sorted(ledger.member_list(),key=lambda member:member[2]):
         writer.writerow(member)
         member_id, name, plan, start, end = member
         if decode(end) < datetime.now():
             plan = "Expired " + plan
-        print "{name}\t{plan}\t{end}".format(name=name, plan=plan, end=end)
+        ret += "{name}\t{plan}\t{end}\n".format(name=name, plan=plan, end=end)
+    return ret
+
+def cash_flow_monthly(ledger, effective = False):
+    currMonth = datetime.now().month
+    quarterTotals = defaultdict(Decimal)
+
+    ret =  "Cash flow by month (%s)\n"%('effective' if effective else 'actual')
+    monthlyFlow = ledger.balances(group_by=('effective_month' if effective else 'month', 'type'), where="external='True'")
+    for (month, type), amount in monthlyFlow.iteritems():
+        if currMonth -3 <= month.month < currMonth:
+            quarterTotals[type] += amount
+        ret += "%s %s %s\n"%(month.strftime("%B %Y"), type, amount)
+
+    ret+="\n3 month averages\n"
+    for type, amount in quarterTotals.iteritems():
+        ret += "%s %s\n"%(type,float(amount)/3.0)
+    return ret

@@ -1,7 +1,7 @@
 #!/usr/bin/python
 # -*- coding: latin-1 -*-
 
-from collections import namedtuple
+from collections import namedtuple, defaultdict
 from csv import DictWriter
 import hashlib
 from itertools import groupby
@@ -44,9 +44,15 @@ class Ledger(object):
         "Student": MembershipPlan(100.0, SEMESTER),
         "Null": MembershipPlan(0.0, 0),
         }
-    def __init__(self, domain):
+    def __init__(self, domain, cache = False):
         self.domain = domain
         self.entity_cache = {None: None}
+        if isinstance(cache,dict) :
+            self.cache = cache
+        elif cache:
+            self.cache = defaultdict(OrderedDict)
+        else:
+            self.cache = None
 
     def __iter__(self):
         for item in self.domain:
@@ -65,7 +71,7 @@ class Ledger(object):
         else:
             query = "select * from {domain}".format(domain=self.domain.name)
 
-        rs = self.domain.select(query)
+        rs = self._select(query)
         return sum(decode(transaction['amount']) for transaction in rs)
 
     def delete_test_data(self):
@@ -81,12 +87,21 @@ class Ledger(object):
             domain=self.domain.name, member=member, date=encode(date))
         if plan is not None:
             query += "and plan='{plan} '".format(plan=plan)
-        rs = self.domain.select(query)
+        rs = self._select(query)
         try:
             rs.next()
             return True
         except StopIteration:
             return False
+
+    def _select(self, query):
+        if self.cache and (query,) in self.cache['select']:
+            return self.cache['select'][(query,)]
+        rs = self.domain.select(query)
+        if self.cache is not None:
+            self.cache['select'][(query,)] = list(rs)
+            return self.cache['select'][(query,)]
+        return rs
 
     def member_list(self):
         """
@@ -97,7 +112,7 @@ class Ledger(object):
             domain=self.domain.name)
         query += "order by counter_party_id"
 
-        rs = self.domain.select(query)
+        rs = self._select(query)
         for member_id, dues in groupby(rs, lambda result: result['counter_party_id']):
             dues = sorted(dues, key=lambda trans: trans['effective_date'])
 
@@ -105,19 +120,16 @@ class Ledger(object):
             for pmt in dues:
                 if last is None:
                     effective = pmt['effective_date']
-                    last = pmt
                 elif last['effective_until'] != pmt['effective_date'] or pmt['plan'] != last['plan']:
                     ret.append((member_id, last['counter_party'], last['plan'], effective, last['effective_until']))
-                    last = None
-                else:
-                    last = pmt
+                last = pmt
             if last is not None:
                 ret.append((member_id, last['counter_party'], last['plan'], effective, last['effective_until']))
         return ret
 
     def tax(self):
         query = "select tax_inclusive from {domain} where tax_inclusive is not null".format(domain=self.domain.name)
-        rs = self.domain.select(query)
+        rs = self._select(query)
         ret = sum(decode(transaction['tax_inclusive']) for transaction in rs)
         return (ret * self.tax_rate) / (1 + self.tax_rate)
 
@@ -270,7 +282,7 @@ class Ledger(object):
                 domain=domain.name, primary_member=primary_member.replace("'", "''"))
             if plan is not None:
                 query += "and plan='{plan}'".format(plan=plan)
-            rs = domain.select(query)
+            rs = domain.select(query,consistent_read=True)
             try:
                 lastDues = max((result for result in rs), key=lambda result: decode(result['effective_until']))
                 effective_date, plan = decode(lastDues['effective_until']), lastDues['plan']
@@ -375,7 +387,7 @@ class Ledger(object):
 
         query = "select * from {domain} where {wheres}  order by {group_by}".format(domain=self.domain.name,
             wheres=where, group_by=columns[0])
-        rs = self.domain.select(query)
+        rs = self._select(query)
         keyfunc = lambda result: tuple(l(result) for l in lambdas)
         for group_name, transactions in groupby(sorted(rs, key=keyfunc), keyfunc):
             total = sum(decode(transaction['amount']) for transaction in transactions)
@@ -473,7 +485,7 @@ class Ledger(object):
         return self.entity_cache[entity_name]
 
 
-def connect_config_ledger(config):
+def connect_config_ledger(config,cache = False):
     global domain, test
     aws_access_key_id = config.get('auth', 'aws_access_key_id')
     aws_secret_access_key = config.get('auth', 'aws_secret_access_key')
@@ -482,7 +494,7 @@ def connect_config_ledger(config):
     print aws_access_key_id, aws_secret_access_key, domain_name, test
     sdb = boto.connect_sdb(aws_access_key_id, aws_secret_access_key, debug=0)
     domain = sdb.create_domain(domain_name)
-    return Ledger(domain)
+    return Ledger(domain, cache)
 
 
 #def post(before, state="Ready To Post"):
