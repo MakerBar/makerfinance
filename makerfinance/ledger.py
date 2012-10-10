@@ -39,8 +39,9 @@ class Ledger(object):
     checksum_fields = ['amount', 'agent', 'agent_id', 'counter_party', 'counter_party_id', 'bank_account', 'external',
                        'effective_date', 'effective_until', 'plan', 'transfer_id', 'bank_id', 'test', 'type',
                        'tax_inclusive', 'entered', 'subtype']
-
     tax_rate = Decimal(0.070)
+
+    #When an agent account type is given, the actual account is  <agent>:<account>
     agent_account_types = [INCOME, EXPENSE, FOUNDERS_LOAN]
 
     membership_plans = {
@@ -50,6 +51,7 @@ class Ledger(object):
         "Student": MembershipPlan(100.0, SEMESTER),
         "Null": MembershipPlan(0.0, 0),
         }
+
     def __init__(self, domain, cache = False):
         self.domain = domain
         self.entity_cache = {None: None}
