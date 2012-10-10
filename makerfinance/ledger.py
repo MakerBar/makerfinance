@@ -82,6 +82,16 @@ class Ledger(object):
         rs = self._select(query)
         return sum(decode(transaction['amount']) for transaction in rs)
 
+    def find_transaction(self,**conditions):
+        where = " and ".join("%s = '%s'"%(field,encode(value)) for field, value in conditions.iteritems())
+        query = "select * from {domain} where {wheres}".format(domain=self.domain.name, wheres=where)
+        rs = self._select(query)
+        try:
+            return rs.next()
+        except StopIteration:
+            return None
+
+
     def delete_test_data(self):
         """
         Delete all data with the test flag set
@@ -225,7 +235,7 @@ class Ledger(object):
         item['modified'] = encode(datetime.now())
         item['type'] = encode("Income" if income else "Expense")
         item['subtype'] = encode(subtype)
-        item['bank_id'] = encode(bank_id)
+        item['bank_id'] = unicode(bank_id)
         item['notes'] = encode(notes)
         item['test'] = encode(test)
         item['state'] = encode(state)
@@ -256,7 +266,7 @@ class Ledger(object):
         assert from_.keys() == to.keys(), "You must specify both from and to values for all changed fields in your transfer"
 
         if bank:
-            assert from_.keys() == ["bank_account"], "Bank transfers can only change bank_account"
+            assert from_.keys() == ["bank_account"] or set(from_.keys()) == set(["bank_account", "bank_id"]), "Bank transfers can only change bank_account, found changes to: " +str(from_.keys())
         else:
             assert "bank_account" not in from_, "bank_account cannot be changed by non-bank transfers"
             base_details["bank_account"] = "Budget Transfer"
@@ -272,8 +282,11 @@ class Ledger(object):
         self.add(amount, agent, date=date, external=False, transfer_id=transfer_id, subtype=subtype, **toDetails)
         self.add(-amount, agent, date=date, external=False, transfer_id=transfer_id, subtype=subtype, **fromDetails)
 
-    def bank_transfer(self, amount, from_account, to_account, agent, bank=True, subtype=None, date=None, **kwargs):
-        self.transfer(amount, {'bank_account': from_account}, {'bank_account': to_account}, agent, bank, subtype, date,
+    def bank_transfer(self, amount, from_account, to_account, agent, bank=True, subtype=None, date=None, from_bank_id = None, to_bank_id=None, both_bank_id=None, **kwargs):
+        assert 'bank_id' not in kwargs
+        if both_bank_id is not None:
+            to_bank_id = from_bank_id = both_bank_id
+        self.transfer(amount, {'bank_account': from_account, 'bank_id':from_bank_id}, {'bank_account': to_account, 'bank_id':to_bank_id}, agent, bank, subtype, date,
             **kwargs)
 
     def dues(self, members, collector, amount=100.0, plan=None, bank_id="Cash", effective_date=None, date=None, test="",

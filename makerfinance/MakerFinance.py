@@ -1,5 +1,7 @@
+import csv
 import pickle
 from pprint import pprint
+import re
 from time import mktime
 from doublex.pyDoubles import proxy_spy
 from makerfinance.util import decode
@@ -14,6 +16,15 @@ from makerfinance.ledger import INCOME, EXPENSE, FOUNDERS_LOAN,\
     connect_config_ledger, MONTH
 from makerfinance.reports import  make_quarterly_zipfile, cash_flow_report_set, list_transactions, member_report, cash_flow_monthly
 import argparse
+
+
+check_regex = re.compile(r'CHECK (\d+) ')
+trans_regexs = [
+    re.compile(r'Chase QuickPay Electronic Transfer (\d+) (from|to) (.+)'), # QuickPay
+    re.compile(r'.*PPD ID: (.+)'),  #PPD?
+    re.compile(r'CHASE            EPAY       (\d+)      WEB ID: (\d+)')  #EPAY
+]
+
 parser = argparse.ArgumentParser(
     description='Command line script for interaction with the makerfinance system',
 )
@@ -21,6 +32,11 @@ parser.add_argument("--save_cache",action="store_true",default=False )
 command_subparsers = parser.add_subparsers(help = "commands",dest='command')
 
 todo_parser = command_subparsers.add_parser('update-todos',help='Update toodledo todos')
+
+check_parser = command_subparsers.add_parser('check',help='Check transactions against report from bank')
+check_parser.add_argument("file",action="store",type =argparse.FileType('rt'))
+check_parser.add_argument("--hide-phone",action="store_false",dest="phone",help="hide messages about unmatchable digital deposits")
+check_parser.add_argument("--min",action="store",dest='min',default =.01,help='Minimum transaction to flag.',type=float)
 
 post_parser = command_subparsers.add_parser('post',help='Post ready transactions')
 
@@ -33,6 +49,13 @@ print opt
 mfconfig.init()
 config = mfconfig.config
 ledger = connect_config_ledger(config, cache=opt.save_cache)
+
+def find_transaction_id(row):
+    for regex in reversed(trans_regexs):
+        match = regex.match(row['Description'])
+        if match:
+            return match.group(1)
+    return row['Description']
 
 if  opt.command == "report":
     bankBalances = ledger.balances()
@@ -89,7 +112,41 @@ elif opt.command == "update-todos":
             noteTemplate = """Dear {member} just a reminder that your MakerBar membership {willHas} at {end} please bring a check at the next MakerBar event or setup Chase Quick Pay to Treasurer@MakerBar.com for a way to transfer money without a fee for either you or MakerBar.  Chase Quick Pay can even be scheduled to pay automatically."""
             client.editTask(task.id,duedate=mktime(end.date().timetuple()), note = noteTemplate.format(member = name, start = start, end=end,
                             willHas = ("has expired" if end < datetime.now() else "will expire"))) #duetime = time(end.time().timetuple),
+elif opt.command == 'check':
+    bankLedger = csv.DictReader(opt.file)
+    for row in bankLedger:
+        bank_id = None
+        transaction = None
+        if row['Type'] == 'CHECK':
+            type = EXPENSE
+            match = check_regex.match(row['Description'])
+            if match:
+                bank_id= match.group(1)
+        elif row['Type'] == 'CREDIT':
+            type = INCOME
+            bank_id = find_transaction_id(row)
+        elif row['Type'] == 'DEBIT':
+            type = EXPENSE
+            bank_id = find_transaction_id(row)
+        elif row['Type'] == 'DSLIP':
+            if opt.phone:
+                print "Unable to match phone deposit for ${amount}".format(amount=row['Amount'])
+            continue
+        else:
+            print "unknown type:",row['Type']
+            continue
 
+        if bank_id:
+            transaction = ledger.find_transaction(bank_id=bank_id,type=type)
+        if not transaction:
+            if abs(float(row['Amount'])) >= opt.min:
+                print "#{bank_id} Unmatched row ".format(bank_id=bank_id), row
+        elif transaction['amount'] != row['Amount']:
+            print "#{bank_id} Mismatched amounts {bank} {ledger}".format(bank_id=bank_id,bank=row['Amount'], ledger = transaction['amount'])
+
+
+
+        #Type,Post Date,Description,Amount
 if opt.save_cache:
     # remove domain if present
     for type,cache in ledger.cache.iteritems():
@@ -98,3 +155,4 @@ if opt.save_cache:
                 if hasattr(rs,"domain"):
                     del rs.domain
     pickle.dump(ledger.cache,open("mf_cache.pkl","w"))
+
