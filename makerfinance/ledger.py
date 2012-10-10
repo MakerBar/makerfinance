@@ -317,7 +317,7 @@ class Ledger(object):
     #            primary_member=primary_member, test=test, **kwargs)
 
     def add_class(self, amount_paid, student, agent, bank_account, bank_id, class_name, class_date, materials=0,
-                  date_paid=None, test=False,
+                  date_paid=None, test=False, membership_effective_date=None,
                   fees=(), **other_fields):
         class_name += class_date.strftime(":%B %d, %Y")
         if not self.is_member(student, class_date):
@@ -325,8 +325,10 @@ class Ledger(object):
             assert amount_paid > dues_paid, "Paid only {paid} insufficient to cover dues of {dues}".format(
                 paid=amount_paid, dues=dues_paid)
             amount_paid -= dues_paid
+            if membership_effective_date is None:
+                membership_effective_date=class_date
             self.dues(members=student, collector=agent, bank_account=bank_account, bank_id=bank_id, amount=dues_paid,
-                effective_date=class_date, date=date_paid, plan="Class Only", test=test, event=class_name,
+                effective_date=membership_effective_date, date=date_paid, plan="Class Only", test=test, event=class_name,
                 **other_fields)
 
         self.add(amount_paid - materials, agent, "Class:Instruction", counter_party=student, event=class_name,
