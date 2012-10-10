@@ -210,7 +210,7 @@ def member_report(ledger):
     writer = csv.writer(open("member_list.csv", "w"))
     writer.writerow(("member_id", "name", "plan", "start", "end"))
     print "Name\t\tPlan\tMember Until"
-    for member in ledger.member_list():
+    for member in sorted(ledger.member_list(),key=lambda member:member[2]):
         writer.writerow(member)
         member_id, name, plan, start, end = member
         if decode(end) < datetime.now():
