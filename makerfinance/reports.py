@@ -1,5 +1,5 @@
 from StringIO import StringIO
-from collections import OrderedDict, defaultdict
+from collections import OrderedDict, defaultdict, Counter
 from csv import DictWriter
 import csv
 from datetime import date, timedelta, time, datetime
@@ -33,7 +33,7 @@ def daily_balance(ledger,filter=None, format=None):
         if not filter or account in filter:
             balances[account] = balances.get(account,Decimal(0)) + amount
     if format == "csv":
-        ret = ",".join(["Date"]+balances.keys())+"\n"+ret
+        ret = ",".join(["Date"]+['"%s"'%x for x in balances.keys()])+"\n"+ret
     return ret
 
 def make_posting_reports(postingTime, toPost):
@@ -115,8 +115,15 @@ def format_entry(entry, verbose=False):
     return ret + "\n" + pformat(entry)
 
 
-def list_transactions(ledger):
+def list_transactions(ledger,**filters):
     for item in ledger:
+        skip = False
+        for filterName,filterValue in filters.iteritems():
+            if item[filterName] != filterValue:
+                skip = True
+                break
+        if skip:
+            continue
         print format_entry(item)
 
 
@@ -257,6 +264,8 @@ def member_report(ledger, max_days=90, asof_date=None):
     ret += "Name\t\tPlan\tMember Until\n"
     for member in sorted(ledger.member_list(), key=lambda member: member[2]):
         member_id, name, plan, last_payment, last_bank_id, last_bank_acct, start, end = member
+        if decode(start) > asof_date:
+            continue
         if decode(end) < asof_date - timedelta(days=max_days):
             continue
         writer.writerow(member)
@@ -265,7 +274,30 @@ def member_report(ledger, max_days=90, asof_date=None):
         ret += "{name}\t{plan}\t{end}\n".format(name=name, plan=plan, end=end)
     return ret
 
+def member_stats(ledger, format='text'):
+    #writer.writerow(("member_id", "name", "plan", "start", "end"))
+    #ret += "Name\t\tPlan\tMember Until\n"
+    memberList = ledger.member_list()
+    interestingDates = {}
+    for member in memberList:
+        member_id, name, plan, last_payment, last_bank_id, last_bank_acct, start, end = member
+        interestingDates[decode(start)] = Counter(dict(zip(ledger.membership_plans.keys(),[0]*len(ledger.membership_plans))))
+        interestingDates[decode(end)] = Counter(dict(zip(ledger.membership_plans.keys(),[0]*len(ledger.membership_plans))))
+    for member in memberList:
+        member_id, name, plan, last_payment, last_bank_id, last_bank_acct, start, end = member
+        for dateOfInterest, counts in interestingDates.iteritems():
+            if dateOfInterest<=decode(end) and dateOfInterest>= decode(start):
+                counts[plan]+=1
+    buffer = StringIO()
+    fields = ["Date"]+ledger.membership_plans.keys()
+    writer = DictWriter(buffer, fieldnames=fields,quoting=csv.QUOTE_ALL)
+    writer.writerow(dict(zip(fields,fields)))
+    for dateOfInterest, counts in sorted(interestingDates.iteritems()):
+        row = dict(counts)
+        row["Date"] = dateOfInterest
+        writer.writerow(row)
 
+    return buffer.getvalue()
 def cash_flow_monthly(ledger, effective=False):
     currMonth = datetime.now().month
     quarterTotals = defaultdict(Decimal)

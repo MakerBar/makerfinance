@@ -23,7 +23,7 @@ import makerfinance.config as mfconfig
 from makerfinance.ledger import INCOME, EXPENSE, FOUNDERS_LOAN,\
     PRIMARY_CHECKING, CASH_BOX,\
     connect_config_ledger, MONTH
-from makerfinance.reports import  make_quarterly_zipfile, cash_flow_report_set, list_transactions, member_report, cash_flow_monthly, daily_balance
+from makerfinance.reports import  make_quarterly_zipfile, cash_flow_report_set, list_transactions, member_report, cash_flow_monthly, daily_balance, format_entry, member_stats
 import argparse
 
 
@@ -43,6 +43,10 @@ command_subparsers = parser.add_subparsers(help="commands", dest='command')
 if POODLEDO_AVAILABLE:
     todo_parser = command_subparsers.add_parser('update-todos', help='Update toodledo todos')
 
+review_parser = command_subparsers.add_parser('review-transactions', help='Review transactions from the ledger')
+review_parser.add_argument("--bank-account", action="store", default=None,dest="bank_account",
+    help="review transactions against a particular bank account")
+
 check_parser = command_subparsers.add_parser('check', help='Check transactions against report from bank')
 check_parser.add_argument("file", action="store", type=argparse.FileType('rt'))
 check_parser.add_argument("--hide-phone", action="store_false", dest="phone",
@@ -55,7 +59,7 @@ check_parser.add_argument("--bank_account", action="store", dest="bank_account",
 post_parser = command_subparsers.add_parser('post', help='Post ready transactions')
 
 report_parser = command_subparsers.add_parser('report', help='Generate report on current state')
-report_parser.add_argument("--report", action="append", dest="reports", choices=["members","daily_balance"], default=[],
+report_parser.add_argument("--report", action="append", dest="reports", choices=["members","member_stats","daily_balance","bank_balances"], default=[],
     help="List of reports to run")
 report_parser.add_argument("--date", action="store", dest="date", type=dateutil.parser.parse, default=datetime.now(),
     help="Date on which to run the report (where supported)")
@@ -76,17 +80,29 @@ def find_transaction_id(row):
         if match:
             return match.group(1)
     return row['Description']
-
-if  opt.command == "report":
-    if not len(opt.reports):
+if opt.command == "review-transactions":
+    filters = {}
+    if opt.bank_account is not None:
+        filters['bank_account'] = opt.bank_account
+    list_transactions(ledger,**filters)
+elif  opt.command == "report":
+    if not len(opt.reports) or "bank_balances" in opt.reports:
         bankBalances = ledger.balances()
         print "\n\nBalances:"
         print "\n".join("%s $%s" % (" - ".join(name), amount) for name, amount in bankBalances.iteritems() if amount)
+    if not len(opt.reports):
         ledger.dump_to_csv("test_ledger.csv")
 
     if not len(opt.reports) or "members" in opt.reports:
         print member_report(ledger, asof_date=opt.date)
         #    pprint(ledger.cache)
+
+    if "member_stats" in opt.reports:
+        report = member_stats(ledger, opt.format)
+        if opt.format == "csv":
+            open("member_stats.csv","w").write(report)
+        else:
+            print report
 
     if not len(opt.reports):
         print "\nEvent net income -loss"

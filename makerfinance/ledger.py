@@ -149,6 +149,7 @@ class Ledger(object):
                         member_id, last['counter_party'], last['plan'], last['date'], last['bank_id'],
                         last['bank_account'], effective,
                         last['effective_until']))
+                    effective = pmt['effective_date']
                 last = pmt
             if last is not None:
                 ret.append(
@@ -457,12 +458,17 @@ class Ledger(object):
         for group_key, transactions in groupby(sorted(rs, key=keyfunc), keyfunc):
             total = sum(decode(transaction['amount']) for transaction in transactions)
             if total:
-
                 if group_by[-1] == "bank_account":
                     net_key = group_key[0:-1]+("net",)
                     net = ret.get(net_key,0)
                     net += total
                     ret[net_key] = net
+                    if not group_key[-1].endswith(FOUNDERS_LOAN):
+                        net_key = group_key[0:-1]+("operating net",)
+                        net = ret.get(net_key,0)
+                        net += total
+                        ret[net_key] = net
+
 
                 ret[group_key] = total
 
