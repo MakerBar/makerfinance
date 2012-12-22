@@ -409,6 +409,10 @@ class Ledger(object):
             column = "effective_date" if group == "effective_month" else "date"
             l = lambda result: decode(result[column]).replace(day=1, hour=0, minute=0, second=0, microsecond=0,
                 tzinfo=None)
+        elif group in ("day", "effective_day"):
+            column = "effective_date" if group == "effective_month" else "date"
+            l = lambda result: decode(result[column]).replace(hour=0, minute=0, second=0, microsecond=0,
+                tzinfo=None)
         else:
             column = group
             l = (lambda result: ":".join(result[column].split(":")[0:depth])) if depth >= 0 else (
@@ -416,16 +420,22 @@ class Ledger(object):
         return column, l
 
     def balances(self, group_by='bank_account', depth=-1, where=""):
+        """
+
+        """
         ret = OrderedDict()
         if not isinstance(group_by, (tuple, list)):
             group_by = [group_by, ]
 
+        #Create special Rounding functions in the same order as the group bys
+        #These are needed to round dates down to months
+        #also crease columns for the query below
         columns = []
-        lambdas = []
+        roundingFuncs = []
         for group in group_by:
             column, l = self._mk_balance_group(depth, group)
             columns.append(column)
-            lambdas.append(l)
+            roundingFuncs.append(l)
 
         if where:
             where += " and " + " and ".join(x + " is not null" for x in columns)
@@ -441,12 +451,24 @@ class Ledger(object):
         query = "select * from {domain} where {wheres}  order by {group_by}".format(domain=self.domain.name,
             wheres=where, group_by=columns[0])
         rs = self._select(query)
-        keyfunc = lambda result: tuple(l(result) for l in lambdas)
+
+
+        # keyfunc for both sorting and grouping is to use the rounding functions
+        keyfunc = lambda result: tuple(rnd(result) for rnd in roundingFuncs)
         for group_name, transactions in groupby(sorted(rs, key=keyfunc), keyfunc):
             total = sum(decode(transaction['amount']) for transaction in transactions)
             if total:
                 ret[group_name] = total
+
+        if group_by[-1] == "bank_account":
+            for group_key, balance in ret.iteritems():
+                net_key = group_key[0:-1]+("net assets",)
+                net = ret.get(net_key,0)
+                net += balance
+                ret[net_key] = net
+
         return ret
+
 
     def set_state(self, entry_or_id, state):
         """
