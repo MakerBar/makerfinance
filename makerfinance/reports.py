@@ -27,10 +27,11 @@ def make_posting_reports(postingTime, toPost):
     for entry in toPost:
         postingSummary += "{id},{date},{checksum},{version}\n".format(id=entry.name, date=entry["effective_date"],
             checksum=entry["checksum"], version=entry["checksum_version"])
-    open("Posting_Summary_" + postingTime + ".txt", "wt").write(postingSummary)
+    postDetails = ZipFile("Posting_Details_" + postingTime + ".zip", "w")
+    postDetails.writestr("Posting_Summary_" + postingTime + ".txt", postingSummary)
     for agent, (textReport, binaryReport) in postingReports.iteritems():
-        open("Posting_Report_" + postingTime + "_" + agent + ".txt", "wt").write(textReport)
-        open("Posting_Report_" + postingTime + "_" + agent + ".pkl", "wb").write(binaryReport)
+        postDetails.writestr("Posting_Report_" + postingTime + "_" + agent + ".txt", textReport)
+        postDetails.writestr("Posting_Report_" + postingTime + "_" + agent + ".pkl", binaryReport)
 
 
 def make_posting_report(entries):
@@ -139,19 +140,19 @@ def cash_flow_report_set(ledger, start, end, account_grouping):
     query = """select amount, tax_inclusive from {domain}
         where type = 'Income'
             and external = 'True'
-            and date between '{start}' and '{end}'""".format(domain=ledger.domain.name,start=encode(start),
+            and date between '{start}' and '{end}'""".format(domain=ledger.domain.name, start=encode(start),
         end=encode(end, epsilon=True))
     rs = ledger._select(query)
     gross = sum(decode(transaction['amount']) for transaction in rs)
     tax_inclusive = sum(decode(transaction['tax_inclusive']) for transaction in rs)
-    taxable = tax_inclusive/ (1 + ledger.tax_rate)
+    taxable = tax_inclusive / (1 + ledger.tax_rate)
     tax = taxable * ledger.tax_rate
     gross -= tax
     deductions = gross - taxable
-    ret["Tax"]="Quarterly Tax Statement\n"
-    ret["Tax"]+="Gross Receipts\tDeductions\tTaxable\tTax Due\n"
-    ret["Tax"]+="\t".join(str(x) for x in [gross,deductions,taxable,tax]) +"\n"
-    ret["Tax"]+= "Sales Tax Due this quarter {tax} on {taxable}".format(tax=tax,taxable = taxable)
+    ret["Tax"] = "Quarterly Tax Statement\n"
+    ret["Tax"] += "Gross Receipts\tDeductions\tTaxable\tTax Due\n"
+    ret["Tax"] += "\t".join(str(x) for x in [gross, deductions, taxable, tax]) + "\n"
+    ret["Tax"] += "Sales Tax Due this quarter {tax} on {taxable}".format(tax=tax, taxable=taxable)
 
     startingBalances = all_balances(ledger, group_by=account_grouping, where=startWhere)
     startingBalanceReport = format_account_balances(startingBalances)
@@ -224,12 +225,12 @@ def make_quarterly_zipfile(ledger, reports_zip, quarter, year=None, account_grou
         quarterly.writestr(title.replace(" ", "_") + ".tsv", text)
 
 
-def member_report(ledger,max_days = 90):
-    ret =  "\nMembers\n"
+def member_report(ledger, max_days=90):
+    ret = "\nMembers\n"
     writer = csv.writer(open("member_list.csv", "w"))
     writer.writerow(("member_id", "name", "plan", "start", "end"))
     ret += "Name\t\tPlan\tMember Until\n"
-    for member in sorted(ledger.member_list(),key=lambda member:member[2]):
+    for member in sorted(ledger.member_list(), key=lambda member: member[2]):
         member_id, name, plan, last_payment, start, end = member
         if decode(end) < datetime.now() - timedelta(days=max_days):
             continue
@@ -239,21 +240,24 @@ def member_report(ledger,max_days = 90):
         ret += "{name}\t{plan}\t{end}\n".format(name=name, plan=plan, end=end)
     return ret
 
-def cash_flow_monthly(ledger, effective = False):
+
+def cash_flow_monthly(ledger, effective=False):
     currMonth = datetime.now().month
     quarterTotals = defaultdict(Decimal)
 
-    ret =  "Cash flow by month (%s)\n"%('effective' if effective else 'actual')
-    monthlyFlow = ledger.balances(group_by=('effective_month' if effective else 'month', 'type'), where="external='True'")
-    lastThree=defaultdict(list)
+    ret = "Cash flow by month (%s)\n" % ('effective' if effective else 'actual')
+    monthlyFlow = ledger.balances(group_by=('effective_month' if effective else 'month', 'type'),
+        where="external='True'")
+    lastThree = defaultdict(list)
     for (month, type), amount in monthlyFlow.iteritems():
-        if currMonth -3 <= month.month < currMonth:
+        if currMonth - 3 <= month.month < currMonth:
             quarterTotals[type] += amount
-        lastThree[type].insert(0,amount)
+        lastThree[type].insert(0, amount)
         lastThree[type] = lastThree[type][0:3]
-        ret += "%s %s %s \t\t3mo avg $%.2f\n"%(month.strftime("%B %Y"), type, amount,sum(lastThree[type])/len(lastThree[type]))
+        ret += "%s %s %s \t\t3mo avg $%.2f\n" % (
+            month.strftime("%B %Y"), type, amount, sum(lastThree[type]) / len(lastThree[type]))
 
-    ret+="\n3 month averages\n"
+    ret += "\n3 month averages\n"
     for type, amount in quarterTotals.iteritems():
-        ret += "%s %s\n"%(type,float(amount)/3.0)
+        ret += "%s %s\n" % (type, float(amount) / 3.0)
     return ret

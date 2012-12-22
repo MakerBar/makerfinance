@@ -50,12 +50,12 @@ class Ledger(object):
         "Class Only": MembershipPlan(25.0, MONTH),
         "Student": MembershipPlan(100.0, SEMESTER),
         "Null": MembershipPlan(0.0, 0),
-        }
+    }
 
-    def __init__(self, domain, cache = False):
+    def __init__(self, domain, cache=False):
         self.domain = domain
         self.entity_cache = {None: None}
-        if isinstance(cache,dict) :
+        if isinstance(cache, dict):
             self.cache = cache
         elif cache:
             self.cache = defaultdict(OrderedDict)
@@ -82,8 +82,8 @@ class Ledger(object):
         rs = self._select(query)
         return sum(decode(transaction['amount']) for transaction in rs)
 
-    def find_transaction(self,**conditions):
-        where = " and ".join("%s = '%s'"%(field,encode(value)) for field, value in conditions.iteritems())
+    def find_transaction(self, **conditions):
+        where = " and ".join("%s = '%s'" % (field, encode(value)) for field, value in conditions.iteritems())
         query = "select * from {domain} where {wheres}".format(domain=self.domain.name, wheres=where)
         rs = self._select(query)
         try:
@@ -139,16 +139,19 @@ class Ledger(object):
                 if last is None:
                     effective = pmt['effective_date']
                 elif last['effective_until'] != pmt['effective_date'] or pmt['plan'] != last['plan']:
-                    ret.append((member_id, last['counter_party'], last['plan'], last['date'], effective, last['effective_until']))
+                    ret.append((
+                        member_id, last['counter_party'], last['plan'], last['date'], effective,
+                        last['effective_until']))
                 last = pmt
             if last is not None:
-                ret.append((member_id, last['counter_party'], last['plan'], last['date'], effective, last['effective_until']))
+                ret.append(
+                    (member_id, last['counter_party'], last['plan'], last['date'], effective, last['effective_until']))
         return ret
 
-    def tax(self, where = ""):
+    def tax(self, where=""):
         query = "select tax_inclusive from {domain} where tax_inclusive is not null".format(domain=self.domain.name)
         if where:
-            query += " and "+where
+            query += " and " + where
         rs = self._select(query)
         ret = sum(decode(transaction['tax_inclusive']) for transaction in rs)
         return (ret * self.tax_rate) / (1 + self.tax_rate)
@@ -167,8 +170,12 @@ class Ledger(object):
         for item in transactions:
             writer.writerow(dict(((name, value.encode("utf-8")) for name, value in item.iteritems())))
 
-    def check_pickle(self, filename):
-        entries = pickle.load(open(filename, 'rb'))
+    def check_pickle(self, filename_or_file):
+        try:
+            entries = pickle.load(open(filename_or_file, 'rb'))
+        except:
+            entries = pickle.load(filename_or_file)
+
         for name, entry in entries:
             ledger_entry = self.domain.get_item(name)
             assert entry['checksum'] == self.calculate_checksum(entry)
@@ -177,7 +184,7 @@ class Ledger(object):
 
     def add(self, amount, agent, subtype, counter_party=None, event=None, bank_id="Cash", bank_account=None,
             external=True, date=None, effective_date=None, budget_account=None,
-            test="", income=None, notes="", tax_inclusive=0, fees=(), state="New", **other_fields):
+            test="", income=None, notes="", tax_inclusive=0, fees=(), state="New", append_event=True, **other_fields):
         if counter_party is None and external:
             if event is None:
                 raise TypeError("Either event or counter_party must be specified for external transactions")
@@ -210,15 +217,15 @@ class Ledger(object):
         elif isinstance(budget_account, str):
             budget_account = [budget_account]
 
-        if event:
+        if event and not append_event:
             budget_account.append(event)
         budget_account = ":".join(budget_account)
 
         if tax_inclusive is True:
             tax_inclusive = amount
-        # for now
+            # for now
         other_fields['tax_inclusive'] = tax_inclusive
-        if tax_inclusive>0:
+        if tax_inclusive > 0:
             assert external and income, "Tax may only be collected on external sales"
 
         item = self.domain.new_item(mk_id())
@@ -270,7 +277,9 @@ class Ledger(object):
         assert from_.keys() == to.keys(), "You must specify both from and to values for all changed fields in your transfer"
 
         if bank:
-            assert from_.keys() == ["bank_account"] or set(from_.keys()) == set(["bank_account", "bank_id"]), "Bank transfers can only change bank_account, found changes to: " +str(from_.keys())
+            assert from_.keys() == ["bank_account"] or set(from_.keys()) == set(
+                ["bank_account", "bank_id"]), "Bank transfers can only change bank_account, found changes to: " + str(
+                from_.keys())
         else:
             assert "bank_account" not in from_, "bank_account cannot be changed by non-bank transfers"
             base_details["bank_account"] = "Budget Transfer"
@@ -286,11 +295,13 @@ class Ledger(object):
         self.add(amount, agent, date=date, external=False, transfer_id=transfer_id, subtype=subtype, **toDetails)
         self.add(-amount, agent, date=date, external=False, transfer_id=transfer_id, subtype=subtype, **fromDetails)
 
-    def bank_transfer(self, amount, from_account, to_account, agent, bank=True, subtype=None, date=None, from_bank_id = None, to_bank_id=None, both_bank_id=None, **kwargs):
+    def bank_transfer(self, amount, from_account, to_account, agent, bank=True, subtype=None, date=None,
+                      from_bank_id=None, to_bank_id=None, both_bank_id=None, **kwargs):
         assert 'bank_id' not in kwargs
         if both_bank_id is not None:
             to_bank_id = from_bank_id = both_bank_id
-        self.transfer(amount, {'bank_account': from_account, 'bank_id':from_bank_id}, {'bank_account': to_account, 'bank_id':to_bank_id}, agent, bank, subtype, date,
+        self.transfer(amount, {'bank_account': from_account, 'bank_id': from_bank_id},
+            {'bank_account': to_account, 'bank_id': to_bank_id}, agent, bank, subtype, date,
             **kwargs)
 
     def dues(self, members, collector, amount=100.0, plan=None, bank_id="Cash", effective_date=None, date=None, test="",
@@ -307,7 +318,7 @@ class Ledger(object):
                 domain=domain.name, primary_member=primary_member.replace("'", "''"))
             if plan is not None:
                 query += "and plan='{plan}'".format(plan=plan)
-            rs = domain.select(query,consistent_read=True)
+            rs = domain.select(query, consistent_read=True)
             try:
                 lastDues = max((result for result in rs), key=lambda result: decode(result['effective_until']))
                 effective_date, plan = decode(lastDues['effective_until']), lastDues['plan']
@@ -345,7 +356,7 @@ class Ledger(object):
             raise NotImplementedError("Family membership needs to be revised/fixed")
         self.add(counter_party=primary_member, agent=collector, amount=amount, subtype="Dues", bank_id=bank_id,
             effective_date=effective_date, effective_until=effective_until, plan=plan, test=test, date=date,
-            budget_account="Dues:" + plan, fees=fees, **kwargs)
+            budget_account="Dues:" + plan, fees=fees, append_event=False, **kwargs)
 
         #    for dependant in other_members:
 
@@ -356,7 +367,7 @@ class Ledger(object):
     def add_class(self, amount_paid, student, agent, bank_account, bank_id, class_name, class_date, materials=0,
                   date_paid=None, test=False, membership_effective_date=None,
                   fees=(), **other_fields):
-        class_name.replace(":","|")
+        class_name.replace(":", "|")
         class_name += class_date.strftime(":%B %d, %Y")
         if not self.is_member(student, class_date):
             dues_paid = self.membership_plans["Class Only"].rate
@@ -364,9 +375,10 @@ class Ledger(object):
                 paid=amount_paid, dues=dues_paid)
             amount_paid -= dues_paid
             if membership_effective_date is None:
-                membership_effective_date=class_date
+                membership_effective_date = class_date
             self.dues(members=student, collector=agent, bank_account=bank_account, bank_id=bank_id, amount=dues_paid,
-                effective_date=membership_effective_date, date=date_paid, plan="Class Only", test=test, event=class_name,
+                effective_date=membership_effective_date, date=date_paid, plan="Class Only", test=test,
+                event=class_name,
                 **other_fields)
 
         self.add(amount_paid - materials, agent, "Class:Instruction", counter_party=student, event=class_name,
@@ -511,7 +523,7 @@ class Ledger(object):
         return self.entity_cache[entity_name]
 
 
-def connect_config_ledger(config,cache = False):
+def connect_config_ledger(config, cache=False):
     global domain, test
     aws_access_key_id = config.get('auth', 'aws_access_key_id')
     aws_secret_access_key = config.get('auth', 'aws_secret_access_key')
