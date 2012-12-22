@@ -145,8 +145,10 @@ class Ledger(object):
                 ret.append((member_id, last['counter_party'], last['plan'], effective, last['effective_until']))
         return ret
 
-    def tax(self):
+    def tax(self, where = ""):
         query = "select tax_inclusive from {domain} where tax_inclusive is not null".format(domain=self.domain.name)
+        if where:
+            query += " and "+where
         rs = self._select(query)
         ret = sum(decode(transaction['tax_inclusive']) for transaction in rs)
         return (ret * self.tax_rate) / (1 + self.tax_rate)

@@ -131,6 +131,8 @@ def cash_flow_report_set(ledger, start, end, account_grouping):
     end -= timedelta(microseconds=1)
     inWhere = "effective_date between '{start}' and '{end}'".format(start=encode(start),
         end=encode(end, epsilon=True))
+    taxWhere = "date between '{start}' and '{end}'".format(start=encode(start),
+        end=encode(end, epsilon=True))
     startWhere = "effective_date < '{start}'".format(start=encode(start),
         end=encode(end, epsilon=True))
     endWhere = "effective_date <= '{end}'".format(start=encode(start),
@@ -184,6 +186,7 @@ def cash_flow_report_set(ledger, start, end, account_grouping):
     ret["Quarter Net Cash Flow"] = quarterFlowReport
     ret["Starting Balances"] = startingBalanceReport
     ret["Ending Balances"] = endingBalanceReport
+    ret["Tax"] = "Sales Tax Due this quarter {tax}".format(tax=ledger.tax(where=taxWhere))
     return ret
 
 
