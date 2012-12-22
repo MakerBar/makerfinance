@@ -136,11 +136,22 @@ def cash_flow_report_set(ledger, start, end, account_grouping):
     endWhere = "effective_date <= '{end}'".format(start=encode(start),
         end=encode(end, epsilon=True))
 
-    query = "select tax_inclusive from {domain} where tax_inclusive is not null and date between '{start}' and '{end}'".format(domain=ledger.domain.name,start=encode(start),
+    query = """select amount, tax_inclusive from {domain}
+        where type = 'Income'
+            and external = 'True'
+            and date between '{start}' and '{end}'""".format(domain=ledger.domain.name,start=encode(start),
         end=encode(end, epsilon=True))
     rs = ledger._select(query)
-    taxable = sum(decode(transaction['tax_inclusive']) for transaction in rs)
+    gross = sum(decode(transaction['amount']) for transaction in rs)
+    tax_inclusive = sum(decode(transaction['tax_inclusive']) for transaction in rs)
+    taxable = tax_inclusive/ (1 + ledger.tax_rate)
     tax = taxable * ledger.tax_rate
+    gross -= tax
+    deductions = gross - taxable
+    ret["Tax"]="Quarterly Tax Statement\n"
+    ret["Tax"]+="Gross Receipts\tDeductions\tTaxable\tTax Due\n"
+    ret["Tax"]+="\t".join(str(x) for x in [gross,deductions,taxable,tax]) +"\n"
+    ret["Tax"]+= "Sales Tax Due this quarter {tax} on {taxable}".format(tax=tax,taxable = taxable)
 
     startingBalances = all_balances(ledger, group_by=account_grouping, where=startWhere)
     startingBalanceReport = format_account_balances(startingBalances)
@@ -191,7 +202,6 @@ def cash_flow_report_set(ledger, start, end, account_grouping):
     ret["Quarter Net Cash Flow"] = quarterFlowReport
     ret["Starting Balances"] = startingBalanceReport
     ret["Ending Balances"] = endingBalanceReport
-    ret["Tax"] = "Sales Tax Due this quarter {tax} on {taxable}".format(tax=tax,taxable = taxable)
     return ret
 
 

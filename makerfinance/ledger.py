@@ -218,6 +218,8 @@ class Ledger(object):
             tax_inclusive = amount
         # for now
         other_fields['tax_inclusive'] = tax_inclusive
+        if tax_inclusive>0:
+            assert external and income, "Tax may only be collected on external sales"
 
         item = self.domain.new_item(mk_id())
 
