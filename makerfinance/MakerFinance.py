@@ -1,9 +1,8 @@
 import csv
 import pickle
-from pprint import pprint
+
 import re
 from time import mktime
-from doublex.pyDoubles import proxy_spy
 from makerfinance.util import decode
 from poodledo.apiclient import ApiClient, PoodledoError
 
