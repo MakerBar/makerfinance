@@ -5,6 +5,7 @@ import pickle
 
 import re
 from time import mktime
+from sqlalchemy.util import group_expirable_memoized_property
 from makerfinance.util import decode
 
 POODLEDO_AVAILABLE = False
@@ -54,7 +55,7 @@ check_parser.add_argument("--bank_account", action="store", dest="bank_account",
 post_parser = command_subparsers.add_parser('post', help='Post ready transactions')
 
 report_parser = command_subparsers.add_parser('report', help='Generate report on current state')
-report_parser.add_argument("--report", action="append", dest="reports", choices="members", default=[],
+report_parser.add_argument("--report", action="append", dest="reports", choices=["members","daily_balance"], default=[],
     help="List of reports to run")
 report_parser.add_argument("--date", action="store", dest="date", type=dateutil.parser.parse, default=datetime.now(),
     help="Date on which to run the report (where supported)")
@@ -98,6 +99,11 @@ if  opt.command == "report":
         print cash_flow_monthly(ledger, True)
         print
         print cash_flow_monthly(ledger, False)
+
+    if "daily_balance" in opt.reports:
+        bankBalances = ledger.balances(group_by=['day','bank_account'])
+        print "\n\nBalances:"
+        print "\n".join("%s $%s" % (" - ".join(str(x) for x in name), amount) for name, amount in bankBalances.iteritems() if amount)
 
 elif opt.command == "update-todos":
     user_email = config.get('toodledo', 'username')
