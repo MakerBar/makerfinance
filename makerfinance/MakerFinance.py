@@ -90,7 +90,7 @@ elif opt.command == "update-todos":
 #        store_config(config)
 
     for member in sorted(ledger.member_list(),key=lambda member:member[2]):
-        member_id, name, plan, start, end = member
+        member_id, name, plan, last_payment, start, end = member
         start, end = decode(start), decode(end)
 #        if end < datetime.now():
 #            plan = "Expired " + plan
@@ -108,9 +108,14 @@ elif opt.command == "update-todos":
         if end < datetime.now() - timedelta(days=MONTH*2):
             client.deleteTask(task.id)
         else:
-            noteTemplate = """Dear {member} just a reminder that your MakerBar membership {willHas} at {end} please bring a check at the next MakerBar event or setup Chase Quick Pay to Treasurer@MakerBar.com for a way to transfer money without a fee for either you or MakerBar.  Chase Quick Pay can even be scheduled to pay automatically."""
+            noteTemplate = """Dear {member} just a reminder that your MakerBar membership {willHas} at {end} please
+            bring a check at the next MakerBar event or setup Chase Quick Pay to Treasurer@MakerBar.com for a way to
+            transfer money without a fee for either you or MakerBar.  Chase Quick Pay can even be scheduled to pay
+            automatically.
+
+            Your last payment was on {last_payment}"""
             client.editTask(task.id,duedate=mktime(end.date().timetuple()), note = noteTemplate.format(member = name, start = start, end=end,
-                            willHas = ("has expired" if end < datetime.now() else "will expire"))) #duetime = time(end.time().timetuple),
+                            willHas = ("has expired" if end < datetime.now() else "will expire"),last_payment=last_payment)) #duetime = time(end.time().timetuple),
 elif opt.command == 'check':
     bankLedger = csv.DictReader(opt.file)
     for row in bankLedger:
