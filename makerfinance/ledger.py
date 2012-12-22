@@ -291,8 +291,7 @@ class Ledger(object):
         assert from_.keys() == to.keys(), "You must specify both from and to values for all changed fields in your transfer"
 
         if bank:
-            assert from_.keys() == ["bank_account"] or set(from_.keys()) == set(
-                ["bank_account", "bank_id"]), "Bank transfers can only change bank_account, found changes to: " + str(
+            assert from_.keys() == ["bank_account"] or set(from_.keys()) == {"bank_account", "bank_id"}, "Bank transfers can only change bank_account, found changes to: " + str(
                 from_.keys())
         else:
             assert "bank_account" not in from_, "bank_account cannot be changed by non-bank transfers"
@@ -455,17 +454,18 @@ class Ledger(object):
 
         # keyfunc for both sorting and grouping is to use the rounding functions
         keyfunc = lambda result: tuple(rnd(result) for rnd in roundingFuncs)
-        for group_name, transactions in groupby(sorted(rs, key=keyfunc), keyfunc):
+        for group_key, transactions in groupby(sorted(rs, key=keyfunc), keyfunc):
             total = sum(decode(transaction['amount']) for transaction in transactions)
             if total:
-                ret[group_name] = total
 
-        if group_by[-1] == "bank_account":
-            for group_key, balance in ret.iteritems():
-                net_key = group_key[0:-1]+("net assets",)
-                net = ret.get(net_key,0)
-                net += balance
-                ret[net_key] = net
+                if group_by[-1] == "bank_account":
+                    net_key = group_key[0:-1]+("net",)
+                    net = ret.get(net_key,0)
+                    net += total
+                    ret[net_key] = net
+
+                ret[group_key] = total
+
 
         return ret
 

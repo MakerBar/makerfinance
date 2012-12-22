@@ -5,7 +5,7 @@ import pickle
 
 import re
 from time import mktime
-from sqlalchemy.util import group_expirable_memoized_property
+from collections import defaultdict
 from makerfinance.util import decode
 
 POODLEDO_AVAILABLE = False
@@ -23,7 +23,7 @@ import makerfinance.config as mfconfig
 from makerfinance.ledger import INCOME, EXPENSE, FOUNDERS_LOAN,\
     PRIMARY_CHECKING, CASH_BOX,\
     connect_config_ledger, MONTH
-from makerfinance.reports import  make_quarterly_zipfile, cash_flow_report_set, list_transactions, member_report, cash_flow_monthly
+from makerfinance.reports import  make_quarterly_zipfile, cash_flow_report_set, list_transactions, member_report, cash_flow_monthly, daily_balance
 import argparse
 
 
@@ -59,6 +59,8 @@ report_parser.add_argument("--report", action="append", dest="reports", choices=
     help="List of reports to run")
 report_parser.add_argument("--date", action="store", dest="date", type=dateutil.parser.parse, default=datetime.now(),
     help="Date on which to run the report (where supported)")
+report_parser.add_argument("--filter", action="store", dest="filter", default = None, help="Accounts of interest for daily_balance report.")
+report_parser.add_argument("--format", action="store", dest="format", default = None, choices=["text","csv"], help="Report format, where supported.")
 
 opt = parser.parse_args()
 
@@ -101,16 +103,18 @@ if  opt.command == "report":
         print cash_flow_monthly(ledger, False)
 
     if "daily_balance" in opt.reports:
-        bankBalances = ledger.balances(group_by=['day','bank_account'])
-        print "\n\nBalances:"
-        print "\n".join("%s $%s" % (" - ".join(str(x) for x in name), amount) for name, amount in bankBalances.iteritems() if amount)
+        report = daily_balance(ledger, opt.filter, opt.format)
+        if opt.format == "csv":
+            open("daily_balance.csv","w").write(report)
+        else:
+            print report
 
 elif opt.command == "update-todos":
     user_email = config.get('toodledo', 'username')
     password = config.get('toodledo', 'password')
     app_id = config.get('toodledo', 'id')
     app_token = config.get('toodledo', 'token')
-    client = ApiClient(app_id=app_id, app_token=app_token, cache_xml=True)
+    client = ApiClient(app_id=app_id, app_token=app_token)#, cache_xml=True)
     client.authenticate(user_email, password)
     #        config.set('cache','user_token',str(cached_client._key))
     #        store_config(config)
@@ -124,16 +128,26 @@ elif opt.command == "update-todos":
         task = None
         try:
             task = client.getTask(taskName)
-        except PoodledoError:
-            if plan == "Individual":
-                client.addTask(taskName)
+            while task.completed:
+                print "Deleting Completed reminder: %s "%taskName
+                client.deleteTask(task.id)
                 task = client.getTask(taskName)
+            if task:
+                print "Found task: %s "%taskName
+        except PoodledoError:
+            task = None
+
+        if task is None and plan == "Individual" and (end > datetime.now() - timedelta(days=MONTH * 2)):
+            client.addTask(taskName)
+            task = client.getTask(taskName)
+            print "Added task: %s"%taskName
 
         if not task:
             continue
         if end < datetime.now() - timedelta(days=MONTH * 2):
             client.deleteTask(task.id)
         else:
+            how = ""
             if last_bank_id == "Cash":
                 how = " paid in cash"
             elif last_bank_acct == "PayPal":
@@ -150,7 +164,7 @@ elif opt.command == "update-todos":
             client.editTask(task.id, duedate=mktime(end.date().timetuple()),
                 note=noteTemplate.format(member=name, start=start, end=end,
                     willHas=("has expired" if end < datetime.now() else "will expire"),
-                    last_payment=last_payment, how=how)) #duetime = time(end.time().timetuple),
+                    last_payment=last_payment, how=how),status='active') #duetime = time(end.time().timetuple),
 elif opt.command == 'check':
     bankLedger = csv.DictReader(opt.file)
     bankLedger.fieldnames = [x.strip() for x in bankLedger.fieldnames]

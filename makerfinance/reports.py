@@ -12,6 +12,29 @@ from makerfinance.util import encode, decode
 
 __author__ = 'andriod'
 
+def daily_balance(ledger,filter=None, format=None):
+
+    bankBalances = ledger.balances(group_by=['day','bank_account'])
+    ret = ""
+    if format != "csv":
+        ret =  "\n\nBalances:\n"
+    balances = OrderedDict()
+    currDate = None
+    for (date,account),amount in bankBalances.iteritems():
+        if date != currDate and balances:
+            if format == "csv":
+                ret +=  ",".join([str(currDate.date())]+['"%d"'%x for x in balances.values()])+"\n"
+            else:
+                ret += "Date: %s\n"%str(currDate.date())
+                for dAccount, balance in sorted(balances.iteritems()):
+                    if balance != 0:
+                        ret += "\t%s\t%f\n"%(dAccount,balance)
+        currDate = date
+        if not filter or account in filter:
+            balances[account] = balances.get(account,Decimal(0)) + amount
+    if format == "csv":
+        ret = ",".join(["Date"]+balances.keys())+"\n"+ret
+    return ret
 
 def make_posting_reports(postingTime, toPost):
     """
