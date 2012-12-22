@@ -225,17 +225,19 @@ def make_quarterly_zipfile(ledger, reports_zip, quarter, year=None, account_grou
         quarterly.writestr(title.replace(" ", "_") + ".tsv", text)
 
 
-def member_report(ledger, max_days=90):
+def member_report(ledger, max_days=90, asof_date=None):
+    if asof_date is None:
+        asof_date = datetime.now()
     ret = "\nMembers\n"
     writer = csv.writer(open("member_list.csv", "w"))
     writer.writerow(("member_id", "name", "plan", "start", "end"))
     ret += "Name\t\tPlan\tMember Until\n"
     for member in sorted(ledger.member_list(), key=lambda member: member[2]):
         member_id, name, plan, last_payment, start, end = member
-        if decode(end) < datetime.now() - timedelta(days=max_days):
+        if decode(end) < asof_date - timedelta(days=max_days):
             continue
         writer.writerow(member)
-        if decode(end) < datetime.now():
+        if decode(end) < asof_date:
             plan = "Expired " + plan
         ret += "{name}\t{plan}\t{end}\n".format(name=name, plan=plan, end=end)
     return ret

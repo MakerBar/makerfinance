@@ -82,14 +82,20 @@ class Ledger(object):
         rs = self._select(query)
         return sum(decode(transaction['amount']) for transaction in rs)
 
-    def find_transaction(self, **conditions):
+    def find_transactions(self, **conditions):
         where = " and ".join("%s = '%s'" % (field, encode(value)) for field, value in conditions.iteritems())
         query = "select * from {domain} where {wheres}".format(domain=self.domain.name, wheres=where)
         rs = self._select(query)
-        try:
-            return rs.next()
-        except StopIteration:
+        return list(rs)
+
+    def find_transaction(self, **conditions):
+        transactions = self.find_transactions(**conditions)
+
+        if len(transactions) == 1:
+            return transactions[0]
+        if len(transactions) == 0:
             return None
+        raise AssertionError("find_transaction found multiple transactions, only one is allowed")
 
 
     def delete_test_data(self):
@@ -258,7 +264,12 @@ class Ledger(object):
 
         item.save()
 
-        for fee_amount, fee_cpty in fees:
+        other_fields.pop("tax_inclusive") #fees are not tax inclusive
+        for fee in fees:
+            if len(fee) == 3:
+                fee_amount, fee_cpty, bank_id = fee
+            else:
+                fee_amount, fee_cpty = fee
             self.add(-fee_amount, agent, subtype="Fees:" + fee_cpty, counter_party=fee_cpty, event=event,
                 bank_id=bank_id, bank_account=bank_account,
                 external=True, date=date, test=test, income=False,
@@ -384,9 +395,10 @@ class Ledger(object):
         self.add(amount_paid - materials, agent, "Class:Instruction", counter_party=student, event=class_name,
             bank_id=bank_id, bank_account=bank_account,
             date=date_paid, effective_date=class_date, test=test, fees=fees, **other_fields)
-        self.add(materials, agent, "Class:Supplies", counter_party=student, event=class_name, bank_id=bank_id,
-            bank_account=bank_account,
-            date=date_paid, effective_date=class_date, test=test, tax_inclusive=materials, **other_fields)
+        if materials:
+            self.add(materials, agent, "Class:Supplies", counter_party=student, event=class_name, bank_id=bank_id,
+                bank_account=bank_account,
+                date=date_paid, effective_date=class_date, test=test, tax_inclusive=materials, **other_fields)
 
     @staticmethod
     def _mk_balance_group(depth, group):
