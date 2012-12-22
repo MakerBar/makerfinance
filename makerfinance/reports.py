@@ -233,7 +233,7 @@ def member_report(ledger, max_days=90, asof_date=None):
     writer.writerow(("member_id", "name", "plan", "start", "end"))
     ret += "Name\t\tPlan\tMember Until\n"
     for member in sorted(ledger.member_list(), key=lambda member: member[2]):
-        member_id, name, plan, last_payment, start, end = member
+        member_id, name, plan, last_payment, last_bank_id, last_bank_acct, start, end = member
         if decode(end) < asof_date - timedelta(days=max_days):
             continue
         writer.writerow(member)

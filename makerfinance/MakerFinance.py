@@ -54,7 +54,7 @@ check_parser.add_argument("--bank_account", action="store", dest="bank_account",
 post_parser = command_subparsers.add_parser('post', help='Post ready transactions')
 
 report_parser = command_subparsers.add_parser('report', help='Generate report on current state')
-report_parser.add_argument("--report", action="append", dest="reports", choices="members",
+report_parser.add_argument("--report", action="append", dest="reports", choices="members", default=[],
     help="List of reports to run")
 report_parser.add_argument("--date", action="store", dest="date", type=dateutil.parser.parse, default=datetime.now(),
     help="Date on which to run the report (where supported)")
@@ -98,6 +98,7 @@ if  opt.command == "report":
         print cash_flow_monthly(ledger, True)
         print
         print cash_flow_monthly(ledger, False)
+
 elif opt.command == "update-todos":
     user_email = config.get('toodledo', 'username')
     password = config.get('toodledo', 'password')
@@ -109,7 +110,7 @@ elif opt.command == "update-todos":
     #        store_config(config)
 
     for member in sorted(ledger.member_list(), key=lambda member: member[2]):
-        member_id, name, plan, last_payment, start, end = member
+        member_id, name, plan, last_payment, last_bank_id, last_bank_acct, start, end = member
         start, end = decode(start), decode(end)
         #        if end < datetime.now():
         #            plan = "Expired " + plan
@@ -118,7 +119,7 @@ elif opt.command == "update-todos":
         try:
             task = client.getTask(taskName)
         except PoodledoError:
-            if plan == "Individual" or end > datetime.now():
+            if plan == "Individual":
                 client.addTask(taskName)
                 task = client.getTask(taskName)
 
@@ -127,16 +128,23 @@ elif opt.command == "update-todos":
         if end < datetime.now() - timedelta(days=MONTH * 2):
             client.deleteTask(task.id)
         else:
-            noteTemplate = """Dear {member} just a reminder that your MakerBar membership {willHas} at {end} please
-            bring a check at the next MakerBar event or setup Chase Quick Pay to Treasurer@MakerBar.com for a way to
-            transfer money without a fee for either you or MakerBar.  Chase Quick Pay can even be scheduled to pay
-            automatically.
+            if last_bank_id == "Cash":
+                how = " paid in cash"
+            elif last_bank_acct == "PayPal":
+                how = " paid by PayPal"
+            elif last_bank_acct == PRIMARY_CHECKING:
+                if len(last_bank_id) == 10:
+                    how = " paid via Chase QuickPay"
+                else:
+                    how = " check #{check}".format(check=last_bank_id)
 
-            Your last payment was on {last_payment}"""
+            noteTemplate = """Dear {member} just a reminder that your MakerBar membership {willHas} at {end} please bring a check at the next MakerBar event.  You might also setup Chase Quick Pay to Treasurer@MakerBar.com for a way to which can be scheduled to pay automatically.
+
+            Your last payment was on {last_payment}{how}."""
             client.editTask(task.id, duedate=mktime(end.date().timetuple()),
                 note=noteTemplate.format(member=name, start=start, end=end,
                     willHas=("has expired" if end < datetime.now() else "will expire"),
-                    last_payment=last_payment)) #duetime = time(end.time().timetuple),
+                    last_payment=last_payment, how=how)) #duetime = time(end.time().timetuple),
 elif opt.command == 'check':
     bankLedger = csv.DictReader(opt.file)
     bankLedger.fieldnames = [x.strip() for x in bankLedger.fieldnames]

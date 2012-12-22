@@ -132,7 +132,7 @@ class Ledger(object):
         List of all members current and past by member id, name, plan, and effective dates
         """
         ret = []
-        query = u"select counter_party, counter_party_id, plan,date, effective_date, effective_until from {domain} where subtype='Dues' and counter_party_id > ''".format(
+        query = u"select counter_party, counter_party_id, plan,date, bank_id, bank_account, effective_date, effective_until from {domain} where subtype='Dues' and counter_party_id > ''".format(
             domain=self.domain.name)
         query += "order by counter_party_id"
 
@@ -146,12 +146,15 @@ class Ledger(object):
                     effective = pmt['effective_date']
                 elif last['effective_until'] != pmt['effective_date'] or pmt['plan'] != last['plan']:
                     ret.append((
-                        member_id, last['counter_party'], last['plan'], last['date'], effective,
+                        member_id, last['counter_party'], last['plan'], last['date'], last['bank_id'],
+                        last['bank_account'], effective,
                         last['effective_until']))
                 last = pmt
             if last is not None:
                 ret.append(
-                    (member_id, last['counter_party'], last['plan'], last['date'], effective, last['effective_until']))
+                    (
+                    member_id, last['counter_party'], last['plan'], last['date'], last['bank_id'], last['bank_account'],
+                    effective, last['effective_until']))
         return ret
 
     def tax(self, where=""):
