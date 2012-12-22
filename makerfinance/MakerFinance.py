@@ -4,8 +4,12 @@ import pickle
 import re
 from time import mktime
 from makerfinance.util import decode
-from poodledo.apiclient import ApiClient, PoodledoError
-
+POODLEDO_AVAILABLE = False
+try:
+    from poodledo.apiclient import ApiClient, PoodledoError
+    POODLEDO_AVAILABLE = True
+except ImportError:
+    pass
 __author__ = 'andriod'
 from datetime import datetime, time, timedelta
 import makerfinance.config as mfconfig
@@ -30,7 +34,8 @@ parser = argparse.ArgumentParser(
 parser.add_argument("--save_cache",action="store_true",default=False )
 command_subparsers = parser.add_subparsers(help = "commands",dest='command')
 
-todo_parser = command_subparsers.add_parser('update-todos',help='Update toodledo todos')
+if POODLEDO_AVAILABLE:
+    todo_parser = command_subparsers.add_parser('update-todos',help='Update toodledo todos')
 
 check_parser = command_subparsers.add_parser('check',help='Check transactions against report from bank')
 check_parser.add_argument("file",action="store",type =argparse.FileType('rt'))
@@ -146,7 +151,9 @@ elif opt.command == 'check':
             if abs(float(row['Amount'])) >= opt.min:
                 print "#{bank_id} Unmatched row ".format(bank_id=bank_id), row
         elif transaction['amount'] != row['Amount']:
-            print "#{bank_id} Mismatched amounts {bank} {ledger}".format(bank_id=bank_id,bank=row['Amount'], ledger = transaction['amount'])
+            print "#{bank_id} Mismatched amounts {bank} {ledger} #{ledger_id} {subtype} {counterparty}".format(bank_id=bank_id,
+                bank=row['Amount'], ledger = transaction['amount'], subtype= transaction['subtype'],
+                counterparty=transaction['counter_party'], ledger_id = transaction.name)
 
 
 

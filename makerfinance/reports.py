@@ -131,12 +131,17 @@ def cash_flow_report_set(ledger, start, end, account_grouping):
     end -= timedelta(microseconds=1)
     inWhere = "effective_date between '{start}' and '{end}'".format(start=encode(start),
         end=encode(end, epsilon=True))
-    taxWhere = "date between '{start}' and '{end}'".format(start=encode(start),
-        end=encode(end, epsilon=True))
     startWhere = "effective_date < '{start}'".format(start=encode(start),
         end=encode(end, epsilon=True))
     endWhere = "effective_date <= '{end}'".format(start=encode(start),
         end=encode(end, epsilon=True))
+
+    query = "select tax_inclusive from {domain} where tax_inclusive is not null and date between '{start}' and '{end}'".format(domain=ledger.domain.name,start=encode(start),
+        end=encode(end, epsilon=True))
+    rs = ledger._select(query)
+    taxable = sum(decode(transaction['tax_inclusive']) for transaction in rs)
+    tax = taxable * ledger.tax_rate
+
     startingBalances = all_balances(ledger, group_by=account_grouping, where=startWhere)
     startingBalanceReport = format_account_balances(startingBalances)
     activeBudgetAccounts = set(x[0] for x in startingBalances.keys())
@@ -186,7 +191,7 @@ def cash_flow_report_set(ledger, start, end, account_grouping):
     ret["Quarter Net Cash Flow"] = quarterFlowReport
     ret["Starting Balances"] = startingBalanceReport
     ret["Ending Balances"] = endingBalanceReport
-    ret["Tax"] = "Sales Tax Due this quarter {tax}".format(tax=ledger.tax(where=taxWhere))
+    ret["Tax"] = "Sales Tax Due this quarter {tax} on {taxable}".format(tax=tax,taxable = taxable)
     return ret
 
 
@@ -230,10 +235,13 @@ def cash_flow_monthly(ledger, effective = False):
 
     ret =  "Cash flow by month (%s)\n"%('effective' if effective else 'actual')
     monthlyFlow = ledger.balances(group_by=('effective_month' if effective else 'month', 'type'), where="external='True'")
+    lastThree=defaultdict(list)
     for (month, type), amount in monthlyFlow.iteritems():
         if currMonth -3 <= month.month < currMonth:
             quarterTotals[type] += amount
-        ret += "%s %s %s\n"%(month.strftime("%B %Y"), type, amount)
+        lastThree[type].insert(0,amount)
+        lastThree[type] = lastThree[type][0:3]
+        ret += "%s %s %s \t\t3mo avg $%.2f\n"%(month.strftime("%B %Y"), type, amount,sum(lastThree[type])/len(lastThree[type]))
 
     ret+="\n3 month averages\n"
     for type, amount in quarterTotals.iteritems():

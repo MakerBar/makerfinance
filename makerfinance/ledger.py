@@ -354,6 +354,7 @@ class Ledger(object):
     def add_class(self, amount_paid, student, agent, bank_account, bank_id, class_name, class_date, materials=0,
                   date_paid=None, test=False, membership_effective_date=None,
                   fees=(), **other_fields):
+        class_name.replace(":","|")
         class_name += class_date.strftime(":%B %d, %Y")
         if not self.is_member(student, class_date):
             dues_paid = self.membership_plans["Class Only"].rate
