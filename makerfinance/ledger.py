@@ -3,6 +3,7 @@
 
 from collections import namedtuple, defaultdict
 from csv import DictWriter
+import csv
 import hashlib
 from itertools import groupby
 from datetime import datetime, timedelta
@@ -175,7 +176,7 @@ class Ledger(object):
         if transactions is None:
             transactions = list(self.domain)
         all_fields = sorted(self.list_fields(transactions))
-        writer = DictWriter(open(filename, "w"), fieldnames=all_fields)
+        writer = DictWriter(open(filename, "w"), fieldnames=all_fields, quoting=csv.QUOTE_ALL)
         writer.writerow(dict((x, x) for x in all_fields))
         for item in transactions:
             writer.writerow(dict(((name, value.encode("utf-8")) for name, value in item.iteritems())))
