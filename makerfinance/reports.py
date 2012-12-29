@@ -116,13 +116,13 @@ def format_entry(entry, verbose=False):
 
 
 def list_transactions(ledger,**filters):
+    """
+    Print a list of transactions
+    :param ledger: Ledger to print transactions from.
+    :param filters: a dictionary of functions to filter by, only transactions for which all the filter functions are true will be included
+    """
     for item in ledger:
-        skip = False
-        for filterName,filterValue in filters.iteritems():
-            if item[filterName] != filterValue:
-                skip = True
-                break
-        if skip:
+        if not all(filterFunc(item[filterName]) for filterName,filterFunc in filters.iteritems()):
             continue
         print format_entry(item)
 
@@ -167,12 +167,7 @@ def cash_flow_report_set(ledger, start, end, account_grouping):
     endWhere = "effective_date <= '{end}'".format(start=encode(start),
         end=encode(end, epsilon=True))
 
-    query = """select amount, tax_inclusive from {domain}
-        where type = 'Income'
-            and external = 'True'
-            and date between '{start}' and '{end}'""".format(domain=ledger.domain.name, start=encode(start),
-        end=encode(end, epsilon=True))
-    rs = ledger._select(query)
+    rs = ledger.select_taxable_transactions(start, end)
     gross = sum(decode(transaction['amount']) for transaction in rs)
     tax_inclusive = sum(decode(transaction['tax_inclusive']) for transaction in rs)
     taxable = tax_inclusive / (1 + ledger.tax_rate)
@@ -184,24 +179,21 @@ def cash_flow_report_set(ledger, start, end, account_grouping):
     ret["Tax"] += "\t".join(str(x) for x in [gross, deductions, taxable, tax]) + "\n"
     ret["Tax"] += "Sales Tax Due this quarter {tax} on {taxable}".format(tax=tax, taxable=taxable)
 
-    startingBalances = all_balances(ledger, group_by=account_grouping, where=startWhere)
+    startingBalances = all_balances(ledger, group_by=account_grouping, effective_date_before=start)
     startingBalanceReport = format_account_balances(startingBalances)
     activeBudgetAccounts = set(x[0] for x in startingBalances.keys())
-    endingBalances = all_balances(ledger, group_by=account_grouping, where=endWhere)
+    endingBalances = all_balances(ledger, group_by=account_grouping, effective_date_before=end)
     endingBalanceReport = format_account_balances(endingBalances)
     monthlyFlowReport = "Month\tAccount\tAmount\n"
-    monthlyFlow = all_balances(ledger, group_by=('effective_month', account_grouping), where=inWhere)
+    monthlyFlow = all_balances(ledger, group_by=('effective_month', account_grouping), effective_date_after=start, effective_date_before=end)
     for (month, budgetAccount), amount in monthlyFlow.iteritems():
         monthlyFlowReport += "{month}\t{budget_account}\t${amount}\n".format(month=month.strftime("%B %Y"),
             budget_account=budgetAccount, amount=amount)
         activeBudgetAccounts.add(budgetAccount)
         months.add(month)
     activeBudgetAccounts = sorted(activeBudgetAccounts)
-    #Move total to end
-    activeBudgetAccounts.remove('')
-    activeBudgetAccounts.append('')
     months = sorted(months)
-    quarterFlow = all_balances(ledger, group_by=account_grouping, where=inWhere)
+    quarterFlow = all_balances(ledger, group_by=account_grouping, effective_date_after=start, effective_date_before=end)
     quarterFlowReport = format_account_balances(quarterFlow)
 
     flowSummary = OrderedDict()
@@ -241,7 +233,7 @@ def quarterly_reports(ledger, quarter, year=None,
     baseDate = date.today()
     if year is not None:
         baseDate = baseDate.replace(year=year)
-    start = end = baseDate
+    start = end = datetime.combine(baseDate,time(0))
     start = start.replace(month=(quarter - 1) * 3 + 1, day=1)
     end = datetime.combine(end.replace(month=quarter * 3 + 1, day=1), time(0))
 
@@ -298,13 +290,14 @@ def member_stats(ledger, format='text'):
         writer.writerow(row)
 
     return buffer.getvalue()
+
 def cash_flow_monthly(ledger, effective=False):
     currMonth = datetime.now().month
     quarterTotals = defaultdict(Decimal)
 
     ret = "Cash flow by month (%s)\n" % ('effective' if effective else 'actual')
     monthlyFlow = ledger.balances(group_by=('effective_month' if effective else 'month', 'type'),
-        where="external='True'")
+        external=True)
     lastThree = defaultdict(list)
     for (month, type), amount in monthlyFlow.iteritems():
         if currMonth - 3 <= month.month < currMonth:
@@ -318,3 +311,40 @@ def cash_flow_monthly(ledger, effective=False):
     for type, amount in quarterTotals.iteritems():
         ret += "%s %s\n" % (type, float(amount) / 3.0)
     return ret
+
+def entities(ledger):
+    report = ""
+    members = set()
+    students = set()
+    vendors = set()
+    agents = set()
+    customers = set()
+    for transaction in ledger:
+        if decode(transaction['amount']) == 0:
+            continue
+        if transaction['subtype'] == "Dues":
+            if transaction['plan'] == "Class Only":
+                students.add((transaction['counter_party_id'],transaction['counter_party']))
+            else:
+                members.add((transaction['counter_party_id'],transaction['counter_party']))
+        elif 'transfer_id' in transaction:# transaction['subtype'] in ["Bank Transfer","Budget Transfer", "Reimbursement"]:
+            pass
+        elif transaction['type'] == "Income":
+            customers.add((transaction['counter_party_id'],transaction['counter_party']))
+        elif transaction['type'] == "Expense" and transaction['subtype'] != "Refund":
+            vendors.add((transaction['counter_party_id'],transaction['counter_party']))
+        agents.add((transaction['agent_id'],transaction['agent']))
+
+    leaders = members.intersection(agents)
+    customers.difference_update(members)
+    customers.difference_update(students)
+    nonMemberAgents = agents.difference(members)
+    for section, entities in [("Members",members),
+                              ("Students",students),
+                              ("Non-Student Customers",customers),
+                              ("Vendors",vendors),
+                              ("Leaders",leaders),
+                              ("Non-member Agents",nonMemberAgents)]:
+        report += section + "\n-------\n"+"\n".join("%s:%s"%(id,name) for id,name in entities) + "\n\n"
+
+    return report

@@ -23,7 +23,7 @@ import makerfinance.config as mfconfig
 from makerfinance.ledger import INCOME, EXPENSE, FOUNDERS_LOAN,\
     PRIMARY_CHECKING, CASH_BOX,\
     connect_config_ledger, MONTH
-from makerfinance.reports import  make_quarterly_zipfile, cash_flow_report_set, list_transactions, member_report, cash_flow_monthly, daily_balance, format_entry, member_stats
+from makerfinance.reports import  make_quarterly_zipfile, cash_flow_report_set, list_transactions, member_report, cash_flow_monthly, daily_balance, format_entry, member_stats, entities
 import argparse
 
 
@@ -59,7 +59,7 @@ check_parser.add_argument("--bank_account", action="store", dest="bank_account",
 post_parser = command_subparsers.add_parser('post', help='Post ready transactions')
 
 report_parser = command_subparsers.add_parser('report', help='Generate report on current state')
-report_parser.add_argument("--report", action="append", dest="reports", choices=["members","member_stats","daily_balance","bank_balances"], default=[],
+report_parser.add_argument("--report", action="append", dest="reports", choices=["entities","members","member_stats","daily_balance","bank_balances",], default=[],
     help="List of reports to run")
 report_parser.add_argument("--date", action="store", dest="date", type=dateutil.parser.parse, default=datetime.now(),
     help="Date on which to run the report (where supported)")
@@ -80,11 +80,15 @@ def find_transaction_id(row):
         if match:
             return match.group(1)
     return row['Description']
+
 if opt.command == "review-transactions":
     filters = {}
     if opt.bank_account is not None:
-        filters['bank_account'] = opt.bank_account
+        filters['bank_account'] = lambda bankAccount: bankAccount == opt.bank_account
+    if opt.status == 'Hold':
+        raise NotImplemented
     list_transactions(ledger,**filters)
+
 elif  opt.command == "report":
     if not len(opt.reports) or "bank_balances" in opt.reports:
         bankBalances = ledger.balances()
@@ -103,6 +107,10 @@ elif  opt.command == "report":
             open("member_stats.csv","w").write(report)
         else:
             print report
+
+    if "entities" in opt.reports:
+        report = entities(ledger)
+        print report
 
     if not len(opt.reports):
         print "\nEvent net income -loss"

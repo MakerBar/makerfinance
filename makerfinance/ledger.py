@@ -128,17 +128,71 @@ class Ledger(object):
             return self.cache['select'][(query,)]
         return rs
 
+    def select_non_empty(self, columns, external=None, effective_date_after=None, effective_date_before=None, where=''):
+        """
+        Select transactions where the given columns are not empty
+        will be sorted by the first column
+        :param columns: columns that must be non-null
+        :param where: existing where clause if any
+        :return: list of transactions
+        """
+        if where:
+            where += " and "
+
+        if external is not None:
+            where += "and external='%s'" % external
+
+        if effective_date_after is not None:
+            where += "and effective_date >= {date}".format(date=encode(effective_date_after))
+
+        if effective_date_before is not None:
+            where += "and effective_date < {date}".format(date=encode(effective_date_after))
+
+        where += " and ".join(x + " is not null" for x in columns)
+            #    for filter, value in filter_by.iteritems():
+        #        if isinstance(value,(tuple,list)):
+        #            where += "and {field} in ({values})".format(field= filter, values = ",".join('{value}'.format(value = x) for x in value))
+        #        else:
+        #            where += "and {field} in ({values})".format(field= filter, values = ",".join('{value}'.format(value = x) for x in value))
+        query = "select * from {domain} where {wheres}  order by {group_by}".format(domain=self.domain.name,
+            wheres=where, group_by=columns[0])
+        rs = self._select(query)
+        return rs
+
+    def select_taxable_transactions(self, start=None, end=None):
+        query = """select amount, tax_inclusive from {domain}
+            where type = 'Income'
+                and external = 'True'""".format(domain=self.domain.name)
+        if start is not None:
+            query += """and date between '{start}' and '{end}'""".format(domain=self.domain.name, start=encode(start),
+            end=encode(end, epsilon=True))
+        rs = self._select(query)
+        return rs
+
+    def select_member_dues(self, member, plan):
+        query = "select effective_until, plan from {domain} where counter_party = '{member}' and subtype='Dues'".format(
+            domain=domain.name, member=member.replace("'", "''"))
+        if plan is not None:
+            query += "and plan='{plan}'".format(plan=plan)
+        rs = domain.select(query, consistent_read=True)
+        return rs
+
+    def select_all_dues(self):
+        query = u"""select counter_party, counter_party_id, plan,date, bank_id, bank_account, effective_date, effective_until
+                    from {domain} where subtype='Dues' and counter_party_id > ''""".format(
+            domain=self.domain.name)
+        query += "order by counter_party_id"
+        rs = self._select(query)
+        return rs
+
     def member_list(self):
         """
         List of all members current and past by member id, name, plan, and effective dates
         """
         ret = []
-        query = u"select counter_party, counter_party_id, plan,date, bank_id, bank_account, effective_date, effective_until from {domain} where subtype='Dues' and counter_party_id > ''".format(
-            domain=self.domain.name)
-        query += "order by counter_party_id"
 
-        rs = self._select(query)
-        for member_id, dues in groupby(rs, lambda result: result['counter_party_id']):
+        for member_id, dues in groupby(self.select_all_dues(),
+            lambda result: result['counter_party_id']):
             dues = sorted(dues, key=lambda trans: trans['effective_date'])
 
             last = None
@@ -160,10 +214,7 @@ class Ledger(object):
         return ret
 
     def tax(self, where=""):
-        query = "select tax_inclusive from {domain} where tax_inclusive is not null".format(domain=self.domain.name)
-        if where:
-            query += " and " + where
-        rs = self._select(query)
+        rs = self.select_taxable_transactions()
         ret = sum(decode(transaction['tax_inclusive']) for transaction in rs)
         return (ret * self.tax_rate) / (1 + self.tax_rate)
 
@@ -174,12 +225,15 @@ class Ledger(object):
 
     def dump_to_csv(self, filename, transactions=None):
         if transactions is None:
-            transactions = list(self.domain)
+            transactions = list(self)
         all_fields = sorted(self.list_fields(transactions))
         writer = DictWriter(open(filename, "w"), fieldnames=all_fields, quoting=csv.QUOTE_ALL)
         writer.writerow(dict((x, x) for x in all_fields))
         for item in transactions:
-            writer.writerow(dict(((name, value.encode("utf-8")) for name, value in item.iteritems())))
+            writer.writerow(dict(((name, unicode(value).encode("utf-8")) for name, value in item.iteritems())))
+
+    def get_transaction(self, transaction_id):
+        return self.domain.get_item(transaction_id)
 
     def check_pickle(self, filename_or_file):
         try:
@@ -188,10 +242,17 @@ class Ledger(object):
             entries = pickle.load(filename_or_file)
 
         for name, entry in entries:
-            ledger_entry = self.domain.get_item(name)
+            ledger_entry = self.get_transaction(name)
             assert entry['checksum'] == self.calculate_checksum(entry)
             assert entry['checksum'] == ledger_entry['checksum']
             assert ledger_entry['checksum'] == self.calculate_checksum(ledger_entry)
+
+    def _create_item(self):
+        item = self.domain.new_item(mk_id())
+        return item
+
+    def _save_item(self, item):
+        item.save()
 
     def add(self, amount, agent, subtype, counter_party=None, event=None, bank_id="Cash", bank_account=None,
             external=True, date=None, effective_date=None, budget_account=None,
@@ -239,7 +300,7 @@ class Ledger(object):
         if tax_inclusive > 0:
             assert external and income, "Tax may only be collected on external sales"
 
-        item = self.domain.new_item(mk_id())
+        item = self._create_item()
 
         item['amount'] = encode(Decimal(amount))
         item['agent'] = encode(agent)
@@ -267,7 +328,8 @@ class Ledger(object):
 
         item['posted'] = ""
 
-        item.save()
+        #assert amount != 0, "You must be saving a transaction with some amount to it."
+        self._save_item(item)
 
         other_fields.pop("tax_inclusive") #fees are not tax inclusive
         for fee in fees:
@@ -279,8 +341,6 @@ class Ledger(object):
                 bank_id=bank_id, bank_account=bank_account,
                 external=True, date=date, test=test, income=False,
                 fee_for=item.name, **other_fields)
-
-        return item.name
 
     def transfer(self, amount, from_, to, agent, bank=True, subtype=None, date=None, **base_details):
         transfer_id = mk_id()
@@ -329,11 +389,7 @@ class Ledger(object):
         else:
             primary_member = members
         if effective_date is None:
-            query = "select effective_until, plan from {domain} where counter_party = '{primary_member}' and subtype='Dues'".format(
-                domain=domain.name, primary_member=primary_member.replace("'", "''"))
-            if plan is not None:
-                query += "and plan='{plan}'".format(plan=plan)
-            rs = domain.select(query, consistent_read=True)
+            rs = self.select_member_dues(primary_member, plan)
             try:
                 lastDues = max((result for result in rs), key=lambda result: decode(result['effective_until']))
                 effective_date, plan = decode(lastDues['effective_until']), lastDues['plan']
@@ -420,7 +476,7 @@ class Ledger(object):
                 lambda result: result[column])
         return column, l
 
-    def balances(self, group_by='bank_account', depth=-1, where=""):
+    def balances(self, group_by='bank_account', depth=-1, external=None, effective_date_after=None, effective_date_before=None, where=""):
         """
 
         """
@@ -430,7 +486,7 @@ class Ledger(object):
 
         #Create special Rounding functions in the same order as the group bys
         #These are needed to round dates down to months
-        #also crease columns for the query below
+        #also creates columns for the query below
         columns = []
         roundingFuncs = []
         for group in group_by:
@@ -438,21 +494,8 @@ class Ledger(object):
             columns.append(column)
             roundingFuncs.append(l)
 
-        if where:
-            where += " and " + " and ".join(x + " is not null" for x in columns)
-        else:
-            where = " and ".join(x + " is not null" for x in columns)
-            #    for filter, value in filter_by.iteritems():
-        #        if isinstance(value,(tuple,list)):
-        #            where += "and {field} in ({values})".format(field= filter, values = ",".join('{value}'.format(value = x) for x in value))
-        #        else:
-        #            where += "and {field} in ({values})".format(field= filter, values = ",".join('{value}'.format(value = x) for x in value))
-
-
-        query = "select * from {domain} where {wheres}  order by {group_by}".format(domain=self.domain.name,
-            wheres=where, group_by=columns[0])
-        rs = self._select(query)
-
+        rs = self.select_non_empty(columns, effective_date_after=effective_date_after,
+            effective_date_before=effective_date_before, external=external, where=where)
 
         # keyfunc for both sorting and grouping is to use the rounding functions
         keyfunc = lambda result: tuple(rnd(result) for rnd in roundingFuncs)
@@ -535,21 +578,30 @@ class Ledger(object):
 
         return postingTime
 
-    def select(self, before, state=None):
-        dateTest = lambda entry: decode(entry["effective_date"]) < before or decode(
-            entry["entered"]) < before or decode(entry["date"]) < before
-        if state is None:
-            return [entry for entry in self if dateTest(entry)]
-        return [entry for entry in self if dateTest(entry) and entry['state'] == state]
+    def select(self, before=None, external = None, state=None):
+        if before is None:
+            dateTest = lambda x:True
+        else:
+            dateTest = lambda entry: decode(entry["effective_date"]) < before or decode(
+                entry["entered"]) < before or decode(entry["date"]) < before
+
+        return [entry for entry in self if dateTest(entry) and
+                                        (state is None or entry['state'] == state) and
+                                        (external is None or entry['external'] == external)]
 
     def dump_entity_cache(self):
         return "\n".join("%s - %s" % (name, id) for name, id in sorted(self.entity_cache.iteritems()))
 
+    def select_entity_by_name(self, entity_name):
+        query = u"""select counter_party, counter_party_id, agent, agent_id
+                        from {domain} where counter_party = '{name}' or agent = '{name}'"""
+        query = query.format(name=entity_name.replace("'", "''"), domain=domain.name)
+        rs = list(domain.select(query))
+        return rs
+
     def get_entity_id(self, entity_name):
         if entity_name not in self.entity_cache:
-            query = u"select counter_party, counter_party_id, agent, agent_id from {domain} where counter_party = '{name}' or agent = '{name}'"
-            query = query.format(name=entity_name.replace("'", "''"), domain=domain.name)
-            rs = list(domain.select(query))
+            rs = self.select_entity_by_name(entity_name)
             if not rs:
                 self.entity_cache[entity_name] = mk_id()
             else:
@@ -566,6 +618,68 @@ class Ledger(object):
                             name=entity_name, details=rs))
         return self.entity_cache[entity_name]
 
+class DictItem(dict):
+    def __init__(self,**kwargs):
+        super(DictItem, self).__init__(**kwargs)
+        self.name = mk_id()
+
+    def save(self,replace=None):
+        pass
+
+class DictLedger(Ledger):
+    def __init__(self):
+        self.storage = {}
+        self.entity_cache = {None: None}
+
+    def __iter__(self):
+        for item in self.storage.itervalues():
+            yield item
+
+    def _create_item(self):
+        return DictItem()
+
+    def _save_item(self, item):
+        self.storage[item.name] = item
+
+    def select_non_empty(self, columns, external=None, effective_date_after=None, effective_date_before=None, where=""):
+        """
+        Select transactions where the given columns are not empty
+        :param columns: columns that must be non-null
+        :return: list of transactions
+        """
+
+        if where != '':
+            raise NotImplementedError,"DictLedger does not support adhoc where clauses"
+
+        return [transaction for transaction in self if all(column in transaction for column in columns)
+                                and (external is None or transaction['external'] == external)
+                                and (effective_date_after is None or decode(transaction['effective_date']) >= effective_date_after)
+                                and (effective_date_before is None or decode(transaction['effective_date']) < effective_date_before)
+                                ]
+
+    def select_all_dues(self):
+        return [trans for trans in self if trans['subtype'] == 'Dues']
+
+    def select_taxable_transactions(self, start=None, end=None):
+        return [trans for trans in self if (start is None or end is None or start<decode(trans['date'])<=end) and trans['external'] and trans['type']=='Income']
+
+    def select_entity_by_name(self, entity_name):
+        entity_name = entity_name.replace("'", "''")
+        return [trans  for trans in self if trans['counter_party'] == entity_name or trans['agent'] == entity_name]
+
+    def select_member_dues(self, member, plan = None):
+        member=member.replace("'", "''")
+        if plan is None:
+            return [trans for trans in self if trans['subtype'] == 'Dues' and trans['counter_party'] == member]
+        return [trans for trans in self if trans['subtype'] == 'Dues' and trans['counter_party'] == member and plan == plan]
+
+    def is_member(self, member, date, plan=None):
+        if plan is None:
+           return len([trans for trans in self if trans['subtype'] == 'Dues' and trans['counter_party'] == member and decode(trans['effective_date'])<=date<=decode(trans['effective_until'])])
+        return len([trans for trans in self if trans['subtype'] == 'Dues' and trans['counter_party'] == member and decode(trans['effective_date'])<=date<=decode(trans['effective_until']) and trans['plan']==plan])
+
+    def get_transaction(self, transaction_id):
+        return self.storage[transaction_id]
 
 def connect_config_ledger(config, cache=False):
     global domain, test
