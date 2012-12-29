@@ -652,10 +652,11 @@ class DictLedger(Ledger):
             raise NotImplementedError,"DictLedger does not support adhoc where clauses"
 
         return [transaction for transaction in self if all(column in transaction for column in columns)
-                                and (external is None or transaction['external'] == external)
+                                and (external is None or bool(decode(transaction['external'])) == external)
                                 and (effective_date_after is None or decode(transaction['effective_date']) >= effective_date_after)
                                 and (effective_date_before is None or decode(transaction['effective_date']) < effective_date_before)
                                 ]
+
 
     def select_all_dues(self):
         return [trans for trans in self if trans['subtype'] == 'Dues']
