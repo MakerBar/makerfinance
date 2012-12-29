@@ -190,9 +190,9 @@ class Ledger(object):
         List of all members current and past by member id, name, plan, and effective dates
         """
         ret = []
-
-        for member_id, dues in groupby(self.select_all_dues(),
-            lambda result: result['counter_party_id']):
+        cpty_key = lambda result: result['counter_party_id']
+        for member_id, dues in groupby(sorted(self.select_all_dues(),key=cpty_key),
+            key = cpty_key):
             dues = sorted(dues, key=lambda trans: trans['effective_date'])
 
             last = None
