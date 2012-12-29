@@ -136,19 +136,23 @@ class Ledger(object):
         :param where: existing where clause if any
         :return: list of transactions
         """
+
+        wheres = []
         if where:
-            where += " and "
+            wheres = [where]
 
         if external is not None:
-            where += "and external='%s'" % external
+            wheres.append("external='%s'" % external)
 
         if effective_date_after is not None:
-            where += "and effective_date >= {date}".format(date=encode(effective_date_after))
+            wheres.append("effective_date >= '{date}'".format(date=encode(effective_date_after)))
 
         if effective_date_before is not None:
-            where += "and effective_date < {date}".format(date=encode(effective_date_after))
+            wheres.append("effective_date < '{date}'".format(date=encode(effective_date_before)))
 
-        where += " and ".join(x + " is not null" for x in columns)
+        wheres.extend(x + " is not null" for x in columns)
+
+        where = " and ".join(wheres)
             #    for filter, value in filter_by.iteritems():
         #        if isinstance(value,(tuple,list)):
         #            where += "and {field} in ({values})".format(field= filter, values = ",".join('{value}'.format(value = x) for x in value))
@@ -452,9 +456,12 @@ class Ledger(object):
                 event=class_name,
                 **other_fields)
 
-        self.add(amount_paid - materials, agent, "Class:Instruction", counter_party=student, event=class_name,
-            bank_id=bank_id, bank_account=bank_account,
-            date=date_paid, effective_date=class_date, test=test, fees=fees, **other_fields)
+        class_cost = amount_paid - materials
+        if class_cost:
+            assert class_cost > 0, "Negative class costs are not allowed and probably wrong."
+            self.add(class_cost, agent, "Class:Instruction", counter_party=student, event=class_name,
+                bank_id=bank_id, bank_account=bank_account,
+                date=date_paid, effective_date=class_date, test=test, fees=fees, **other_fields)
         if materials:
             self.add(materials, agent, "Class:Supplies", counter_party=student, event=class_name, bank_id=bank_id,
                 bank_account=bank_account,
