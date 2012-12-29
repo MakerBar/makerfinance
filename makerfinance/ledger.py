@@ -662,7 +662,10 @@ class DictLedger(Ledger):
         return [trans for trans in self if trans['subtype'] == 'Dues']
 
     def select_taxable_transactions(self, start=None, end=None):
-        return [trans for trans in self if (start is None or end is None or start<decode(trans['date'])<=end) and trans['external'] and trans['type']=='Income']
+        return [trans for trans in self if
+                (start is None or end is None or start<decode(trans['date'])<=end) and
+                decode(trans['external']) and
+                    trans['type']=='Income']
 
     def select_entity_by_name(self, entity_name):
         entity_name = entity_name.replace("'", "''")
