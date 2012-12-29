@@ -328,7 +328,7 @@ class Ledger(object):
 
         item['posted'] = ""
 
-        #assert amount != 0, "You must be saving a transaction with some amount to it."
+        assert amount != 0, "You must be saving a transaction with some amount to it."
         self._save_item(item)
 
         other_fields.pop("tax_inclusive") #fees are not tax inclusive
