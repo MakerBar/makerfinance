@@ -262,7 +262,7 @@ def member_report(ledger, max_days=90, asof_date=None):
     writer = csv.writer(open("member_list.csv", "w"))
     writer.writerow(("member_id", "name", "plan", "start", "end"))
     ret += "Name\t\tPlan\tMember Until\n"
-    for member in sorted(ledger.member_list(), key=lambda member: member[2]):
+    for member in sorted(ledger.member_list(), key=lambda member: (member[2],member[1],member[7])):
         member_id, name, plan, last_payment, last_bank_id, last_bank_acct, start, end = member
         if decode(start) > asof_date:
             continue
